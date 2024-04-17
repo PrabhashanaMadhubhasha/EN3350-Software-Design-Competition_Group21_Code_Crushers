@@ -1,0 +1,4150 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Text;
+using System.Windows.Forms;
+using System.Threading;
+using System.Runtime.InteropServices;
+using System.Linq;
+using System.IO;
+using Newtonsoft.Json;
+using static IBMSurePOSApplication.IBMSurePOSAPI;
+
+namespace IBMSurePOSApplication
+{   
+    public partial class MainForm : Form
+	{
+        /// <summary>
+		/// Required designer variable.
+		/// </summary>
+		private System.ComponentModel.IContainer components = null;
+        private UInt32 m_Scanner = 0;
+        private UInt16 m_wScannerPID = 0;
+        private UInt16 m_wScannerEClevel = 0;
+        private Thread m_ScanningThread = null;
+		private bool m_ExitThread = false;
+        private bool fwupdateSuccess = false;
+
+        private UInt32 m_Scale = 0;
+        private UInt32 currentRec = 0;
+        private UInt32 totalRec = 0;
+        private String datFile = "";
+        delegate void AddLabelTextBoxLineDelegate(string txt);
+        delegate void AddLabelTextBoxScaleLineDelegate(string txt);
+        private int nextId = 1;
+        DataTable table1 = new DataTable();
+        DataTable table2 = new DataTable();
+        DataTable table3 = new DataTable();
+        DataTable table4 = new DataTable();
+        DataTable table5 = new DataTable();
+        DataTable table6 = new DataTable();
+
+        private const string jsonFilePath = "data.json";
+        private const string jsonScaleFilePath = "dataScale.json";
+        private Dictionary<int, Dictionary<string, string>> dataDict;
+        private Dictionary<int, Dictionary<string, string>> dataDictScale;
+
+        private System.Windows.Forms.Timer timer;
+        private System.Windows.Forms.Timer timerScale;
+       
+        //create number of rows for data view
+        int addingRow;
+        //when deleting a saved command for scanner
+        int selectedRowIndex = -1;
+        //when deleting a saved command for scale
+        int selectedRowIndex1 = -1;
+        private int rowCount;
+
+        /// <summary>
+        /// MainForm constructor
+        /// </summary>
+        public MainForm()
+		{
+			InitializeComponent();
+            LoadDataFromFile();
+            LoadScaleDataFromFile();
+        }
+
+        /// <summary>
+        /// Handler for form load event
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void MainForm_Load(object sender, EventArgs e)
+		{
+			beeper_duration.SelectedIndex = 0;
+			beeper_freq.SelectedIndex = 0;
+			beeper_volume.SelectedIndex = 0;
+			motor_timeout.SelectedIndex = 0;
+			laser_timeout.SelectedIndex = 0;
+			double_read.SelectedIndex = 0;
+			security_level.SelectedIndex = 0;
+			led_good_read.SelectedIndex = 0;
+            rbtDisplayRawData.Checked = true;
+
+            table1.Columns.Add("Time", typeof(string));
+            table1.Columns.Add("Device", typeof(string));
+            table1.Columns.Add("Raw Data", typeof(string));
+            table1.Columns.Add("Source", typeof(string));
+
+            table2.Columns.Add("Time", typeof(string));
+            table2.Columns.Add("Source", typeof(string));
+            table2.Columns.Add("Type", typeof(string));
+            table2.Columns.Add("Device", typeof(string));
+            table2.Columns.Add("Status Byte1", typeof(string));
+            table2.Columns.Add("Status Byte2", typeof(string));
+            table2.Columns.Add("Status Byte3", typeof(string));
+            table2.Columns.Add("Data", typeof(string));
+            table2.Columns.Add("More to follow", typeof(string));
+            
+            table3.Columns.Add("Id", typeof(int));
+            table3.Columns.Add("Command", typeof(string));
+            table3.Columns.Add("Desctription", typeof(string));
+
+            table4.Columns.Add("Time", typeof(string));
+            table4.Columns.Add("Device", typeof(string));
+            table4.Columns.Add("Raw Data", typeof(string));
+            table4.Columns.Add("Source", typeof(string));
+
+            table5.Columns.Add("Time", typeof(string));
+            table5.Columns.Add("Source", typeof(string));
+            table5.Columns.Add("Type", typeof(string));
+            table5.Columns.Add("Device", typeof(string));
+            table5.Columns.Add("Status Byte1", typeof(string));
+            table5.Columns.Add("Status Byte2", typeof(string));
+            table5.Columns.Add("Status Byte3", typeof(string));
+            table5.Columns.Add("Data", typeof(string));
+            table5.Columns.Add("More to follow", typeof(string));
+            
+            table6.Columns.Add("Id", typeof(int));
+            table6.Columns.Add("Command", typeof(string));
+            table6.Columns.Add("Desctription", typeof(string));
+
+            DisplayScannerOpen(false);
+            DisplayScaleOpen(false);
+            SaveCommandTable();
+            SaveCommandTableScalae();
+
+            dataGridView5.DataSource = table4;
+            btnFindScale.PerformClick();
+            btnFindScanner.PerformClick();
+            ConnectScanner();
+            connectScale();
+            IBMSurePOSAPI.IBMSUREPOS_RegisterNotification(Handle);
+        }
+
+		/// <summary>
+		/// Handler for the form closed event
+		/// </summary>
+		/// <param name="sender"></param>
+		/// <param name="e"></param>
+		private void MainForm_FormClosed(object sender, FormClosedEventArgs e)
+		{
+			m_ExitThread = true;
+			IBMSurePOSAPI.IBMSUREPOS_ScanClose(m_Scanner);
+			if (null != m_ScanningThread)
+			{
+				while (m_ScanningThread.IsAlive)
+				{
+					Thread.Sleep(10);
+				}
+			}
+			IBMSurePOSAPI.IBMSUREPOS_RegisterNotification(IntPtr.Zero);         
+        }
+
+        /// <summary>
+		/// Save commans to log scan
+		/// </summary>
+        private void SaveCommandTable()
+        {
+            if (File.Exists(jsonFilePath))
+            {
+                string jsonData = File.ReadAllText(jsonFilePath);
+                dataDict = JsonConvert.DeserializeObject<Dictionary<int, Dictionary<string, string>>>(jsonData);
+                table3.Clear();
+                dataGridView2.Rows.Clear();
+                foreach (var item in dataDict)
+                {
+                    table3.Rows.Add(item.Key, item.Value["Command"], item.Value["Description"]);                  
+                }
+                dataGridView2.DataSource = table3;
+            }
+        }
+
+        /// <summary>
+		/// Save commans to log scale
+		/// </summary>
+        private void SaveCommandTableScalae()
+        {
+            if (File.Exists(jsonFilePath))
+            {
+                string jsonDataScale = File.ReadAllText(jsonScaleFilePath);
+                dataDictScale = JsonConvert.DeserializeObject<Dictionary<int, Dictionary<string, string>>>(jsonDataScale);
+                table6.Clear();
+                dataGridView4.Rows.Clear();
+                foreach (var item in dataDictScale)
+                {
+                    table6.Rows.Add(item.Key, item.Value["Command"], item.Value["Description"]);
+                }
+                dataGridView4.DataSource = table6;
+            }
+        }
+
+        /// <summary>
+        /// Handle a device attach event
+        /// </summary>
+        private void DeviceAttach()
+		{
+            if (0 == m_Scanner)
+            {
+                ConnectScanner();
+            }
+            else if (0 == m_Scale)
+            {
+                connectScale();
+            }
+        }
+        /// <summary>
+        /// Handle a device remove event
+        /// </summary>
+        private void DeviceRemove()
+        {
+            ScannerClose();
+            ScaleClose();
+
+            btnOpen.Text = "Connect";
+            btnFindScanner.Enabled = true;
+
+            btnScaleOpen.Text = "Connect";
+            btnFindScale.Enabled = true;
+
+            comboBox1.Text = string.Empty;
+            lblPID.Text = "-";
+            lblVID.Text = "-";
+            lblProduct.Text = "-";
+            lblManufacturer.Text = "-";
+            lblSerialNumber.Text = "-";
+
+            Combox_fill();
+            Combox_fillScale();
+        }
+
+        /// <summary>
+        /// Handle a scaner removal event
+        /// </summary>
+        private void ScanerRemove()
+        {
+            ScannerClose();
+            btnOpen.Text = "Connect";
+            btnFindScanner.Enabled = true;
+            comboBox1.Text = string.Empty;
+            lblPID.Text = "-";
+            lblVID.Text = "-";
+            lblProduct.Text = "-";
+            lblManufacturer.Text = "-";
+            lblSerialNumber.Text = "-";
+        }
+        /// <summary>
+        /// Handle a scale removal event
+        /// </summary>
+        private void ScaleRemove()
+        {
+            ScaleClose();
+            btnScaleOpen.Text = "Connect";
+            btnFindScale.Enabled = true;
+            lblScaleManufacturer.Text = "-";
+            lblScaleProduct.Text = "-";
+            lblScaleSerialNumber.Text = "-";
+            lblScalePID.Text = "-";
+            lblScaleVID.Text = "-";
+        }
+
+        /// <summary>
+        /// WndProc for DBT_DEVICEARRIVAL and DBT_DEVICEREMOVECOMPLETE messages
+        /// </summary>
+        /// <param name="m"></param>       
+        protected override void WndProc(ref Message m)
+		{ 
+            switch (m.Msg)
+			{
+				case IBMSurePOSAPI.WM_DEVICECHANGE:
+                    switch ((int)m.WParam)
+					{
+						case IBMSurePOSAPI.DBT_DEVICEARRIVAL:
+                            Combox_fill();
+                            Combox_fillScale();
+                            DeviceAttach();
+                            break;
+						case IBMSurePOSAPI.DBT_DEVICEREMOVECOMPLETE:
+                            DeviceRemove();
+                            Combox_fill();
+                            Combox_fillScale();
+                            break;
+						case IBMSurePOSAPI.DBT_DEVNODES_CHANGED:
+							break;
+					}
+					break;
+			}
+			base.WndProc(ref m); 
+		}
+        
+		/// <summary>
+		/// Add a line to the status textbox
+		/// </summary>
+		/// <param name="txt"></param>
+		public void AddLabelTextBoxLine(string txt)
+		{
+			if (txtLabelData.InvokeRequired)
+			{
+				txtLabelData.Invoke(new AddLabelTextBoxLineDelegate(AddLabelTextBoxLineCallback), new object[] { txt });
+			}
+			else
+			{
+				AddLabelTextBoxLineCallback(txt);
+			}
+		}
+
+        /// <summary>
+        /// Add a line to the Scale status textbox
+        /// </summary>
+        /// <param name="txt"></param>
+        public void AddLabelTextBoxScaleLine(string txt)
+        {
+            if (txtLableScaleData.InvokeRequired)
+            {
+                txtLableScaleData.Invoke(new AddLabelTextBoxScaleLineDelegate(AddLabelTextBoxScaleLineCallback), new object[] { txt });
+            }
+            else
+            {
+                AddLabelTextBoxScaleLineCallback(txt);
+            }
+        }
+
+		/// <summary>
+		///  Add a line to the status textbox (invoked)
+		/// </summary>
+		/// <param name="txt"></param>
+		private void AddLabelTextBoxLineCallback(string txt)
+		{
+			txtLabelData.AppendText(txt);
+			txtLabelData.AppendText(System.Environment.NewLine);
+		}
+
+        /// <summary>
+        ///  Add a line to the status textbox (invoked)
+        /// </summary>
+        /// <param name="txt"></param>
+        private void AddLabelTextBoxScaleLineCallback(string txt)
+        {
+            txtLableScaleData.AppendText(txt);
+            txtLableScaleData.AppendText(System.Environment.NewLine);
+        }
+
+        /// <summary>
+        /// Open an instance of an IBM Scanner
+        /// </summary>
+        private void ScannerOpen()
+        {
+            int deviceIndex1;
+            deviceIndex1 = comboBox1.SelectedIndex;
+            m_Scanner = IBMSurePOSAPI.IBMSUREPOS_ScanOpen(deviceIndex1, zebraCheckBox.Checked ? 1 : 0);
+            if (m_Scanner != 0)
+            {
+                UInt32 dwScannerType = 0;
+                UInt32 pdwProductID = 0;
+                UInt32 pdwVendorID = 0;
+                byte[] pSerialNumber = new byte[256];
+                byte[] pManufacturer = new byte[256];
+                byte[] pProduct = new byte[256];
+                DisplayScannerOpen(true);
+                btnStatusRequest_Click(null, null);
+                btnGetConfig_Click(null, null);
+
+                if (IBMSurePOSAPI.IBMSUREPOS_ScanGetInfo(m_Scanner, pManufacturer, pProduct, ref dwScannerType, pSerialNumber, (uint)(pSerialNumber.Length / 2),
+                    ref pdwProductID, ref pdwVendorID, (uint)(pManufacturer.Length / 2), (uint)(pProduct.Length / 2)))
+                {
+                    lblPID.Text = pdwProductID.ToString("X");
+                    lblVID.Text = pdwVendorID.ToString("X");
+                    uint value = dwScannerType;
+                    switch (value)
+                    {
+                        case (uint)IBMSurePOSAPI.ScannerType.OEM_POS_USAGE_HANDHELD_SCANNER:
+                            ((Control)this.tabPage10).Enabled = false;
+                            break;
+                        case (uint)IBMSurePOSAPI.ScannerType.OEM_POS_USAGE_TABLETOP_SCANNER:
+                            ((Control)this.tabPage10).Enabled = false;
+                            break;
+                        case (uint)IBMSurePOSAPI.ScannerType.OEM_POS_USAGE_FLASH_UPDATE:
+                            ((Control)this.tabPage10).Enabled = true;
+                            ((Control)this.tabPage8).Enabled = false;
+                            ((Control)this.tabPage1).Enabled = false;
+                            ((Control)this.tabPage2).Enabled = false;
+                            ((Control)this.tabPage3).Enabled = false;
+                            ((Control)this.tabPage4).Enabled = false;
+                            commandSend.Enabled = false;
+                            break;
+                        default:
+                            lblPID.Text = "Unknown";
+                            lblVID.Text = "Unknown";
+                            break;
+                    };
+
+                    try
+                    {
+                        if (Encoding.ASCII.GetString(pSerialNumber) != null && Encoding.ASCII.GetString(pSerialNumber) != ""
+                            && Encoding.ASCII.GetString(pManufacturer) != null && Encoding.ASCII.GetString(pManufacturer) != ""
+                            && Encoding.ASCII.GetString(pProduct) != null && Encoding.ASCII.GetString(pProduct) != "")
+                        {
+                            lblSerialNumber.Text = Encoding.Unicode.GetString(pSerialNumber);
+                            lblManufacturer.Text = Encoding.Unicode.GetString(pManufacturer);
+                            lblProduct.Text = Encoding.Unicode.GetString(pProduct);
+                        }
+                        else
+                        {
+                            lblSerialNumber.Text = "none";
+                            lblManufacturer.Text = "none";
+                            lblProduct.Text = "none";
+                        }
+                    }
+                    catch
+                    {
+                        lblSerialNumber.Text = "none";
+                        lblManufacturer.Text = "none";
+                        lblProduct.Text = "none";
+                    }
+                }
+                ushort PID = IBMSurePOSAPI.IBMSUREPOS_ScanGetPID(m_Scanner);
+                ushort VersionNumber = IBMSurePOSAPI.IBMSUREPOS_ScanGetVersionNumber(m_Scanner);
+                IBMSurePOSAPI.IBMNativeFW_ScanGetPIDEClevel(m_Scanner, ref m_wScannerPID, ref m_wScannerEClevel);
+                m_ExitThread = false;
+                m_ScanningThread = new Thread(new ThreadStart(ScanningThread));
+                m_ScanningThread.Start();
+            
+            }
+        }
+
+        /// <summary>
+        /// Open an instance of an IBM Scale
+        /// </summary>
+        private void ScaleOpen()
+        {
+            int selectedIndex2 = comboBox2.SelectedIndex;
+            m_Scale = IBMSurePOSAPI.IBMSUREPOS_ScaleOpen(selectedIndex2, zebraCheckBox.Checked ? 1 : 0);
+            if (m_Scale != 0)
+            {
+                UInt32 dwScannerType1 = 0;
+                UInt32 pdwProductID1 = 0;
+                UInt32 pdwVendorID1 = 0;
+                byte[] pSerialNumber1 = new byte[256];
+                byte[] pManufacturer1 = new byte[256];
+                byte[] pProduct1 = new byte[256];
+                DisplayScaleOpen(true);
+                btnScaleStatusRequest_Click(null, null);
+
+                if (IBMSurePOSAPI.IBMSUREPOS_ScaleGetInfo(m_Scale, pManufacturer1, pProduct1, ref dwScannerType1, pSerialNumber1, (uint)(pSerialNumber1.Length / 2),
+                    ref pdwProductID1, ref pdwVendorID1, (uint)(pManufacturer1.Length / 2), (uint)(pProduct1.Length / 2)))
+                {
+                    lblScalePID.Text = pdwProductID1.ToString("X");
+                    lblScaleVID.Text = pdwVendorID1.ToString("X");
+                    try
+                    {
+                        if (Encoding.ASCII.GetString(pSerialNumber1) != null && Encoding.ASCII.GetString(pSerialNumber1) != "")
+                        {
+                            lblScaleSerialNumber.Text = Encoding.Unicode.GetString(pSerialNumber1);
+                            lblScaleManufacturer.Text = Encoding.Unicode.GetString(pManufacturer1);
+                            lblScaleProduct.Text = Encoding.Unicode.GetString(pProduct1);
+                        }
+                        else
+                        {
+                            lblScaleSerialNumber.Text = "none";
+                        }
+                    }
+                    catch
+                    {
+                        lblScaleSerialNumber.Text = "none";
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Close the IBM scanner
+        /// </summary>
+        private void ScannerClose()
+        {
+            if (null != m_ScanningThread)
+            {
+                m_ExitThread = true;
+                while (m_ScanningThread.IsAlive)
+                {
+                    System.Threading.Thread.Sleep(10);
+                }
+            }
+
+            if (m_Scanner != 0)
+            {
+                IBMSurePOSAPI.IBMSUREPOS_ScanClose(m_Scanner);
+            }
+            m_Scanner = 0;
+            m_ScanningThread = null;
+            DisplayScannerOpen(false);
+        }
+
+        /// <summary>
+        /// Close the IBM scale
+        /// </summary>
+        private void ScaleClose()
+        {            
+            if (m_Scale != 0)
+            {
+                IBMSurePOSAPI.IBMSUREPOS_ScaleClose(m_Scale);
+            }
+
+            m_Scale = 0;
+            DisplayScaleOpen(false);
+        }
+
+		/// <summary>
+		/// Update the display depending on whether or not a scanner is present
+		/// </summary>
+		/// <param name="IsOpen"></param>
+		private void DisplayScannerOpen(bool IsOpen)
+		{
+            tabControl1.Enabled = true;
+            tabControl1.TabPages[0].Enabled = true;
+			tabControl1.TabPages[1].Enabled = true;
+            tabControl1.TabPages[2].Enabled = true;
+            tabControl1.TabPages[3].Enabled = true;
+            tabControl1.TabPages[4].Enabled = true;
+            tabControl1.Multiline = false; 
+
+
+            txtLabelData.Text = "";
+            txtLableScaleData.Text = "";
+
+			if (IsOpen)
+			{
+				lblScannerStatus.Text = "Connected";
+				lblScannerStatus.ForeColor = Color.Green;
+                btnEnableScanner.Enabled = true;
+                btnEnableBeeper.Enabled = true;
+                btnDisableBeeper.Enabled = true;
+                btnDisableScanner.Enabled = true;
+                btnTestRequest.Enabled = true;
+                btnStatusRequest.Enabled = true;
+                btnReset.Enabled = true;
+                commandSend.Enabled = true;
+                btnFindScanner.Enabled = false;
+                comboBox1.Enabled = false;
+                btnGSManagementInfo.Enabled = true;
+                btnSGManagementInfo.Enabled = true;
+                button9.Enabled = true;
+                button10.Enabled = true;
+                button1.Enabled = true;
+                btnSetConfiguration.Enabled = true;
+                btnGetConfig.Enabled = true;
+                btnSetAddSymb.Enabled = true;
+                btnGetDevInfo.Enabled = true;
+                button4.Enabled = true;
+            }
+			else
+			{
+				lblScannerStatus.Text = "Disconnected";
+				lblScannerStatus.ForeColor = Color.Red;
+				lblSerialNumber.Text = "-";
+				tabControl1.SelectedIndex = 0;
+                btnEnableScanner.Enabled = false;
+                btnEnableBeeper.Enabled = false;
+                btnDisableBeeper.Enabled = false;
+                btnDisableScanner.Enabled = false;
+                btnTestRequest.Enabled = false;
+                btnStatusRequest.Enabled = false;
+                btnReset.Enabled = false;
+                commandSend.Enabled = false;
+                label72.BackColor = Color.White;
+                label73.BackColor = Color.White;
+                label74.BackColor = Color.White;
+                btnFindScanner.Enabled = true;
+                comboBox1.Enabled = true;
+                btnGSManagementInfo.Enabled = false;
+                btnSGManagementInfo.Enabled = false;
+                button9.Enabled = false;
+                button10.Enabled = false;
+                button1.Enabled = false;
+                btnSetConfiguration.Enabled = false;
+                btnGetConfig.Enabled = false;
+                btnSetAddSymb.Enabled = false;
+                btnGetDevInfo.Enabled = false;
+                button4.Enabled = false;
+
+                lblConnectionType.Text = "-";
+                lblDeviceCategory.Text = "-";
+                lblNoOfDevice.Text = "-";
+                lblEcLevel.Text = "-";
+                lblConfiguration.Text = "-";
+                lblFirmwareVersion.Text = "-";
+                lblManufacDate.Text = "-";
+                lblManufacName.Text = "-";
+                lblMechVersion.Text = "-";
+                lblModelName.Text = "-";
+                lblModelNo.Text = "-";
+                lblDeviceDescription.Text = "-";
+                lblSerialNo.Text = "-";
+                lblHealthStat.Text = "-";
+                lblDigitalWatermark.Text = "-";
+                lblEASPresent.Text = "-";
+                lblEASHealth.Text = "-";
+                lblAuxVID.Text = "-";
+                lblAuxPID.Text = "-";
+                lblAuxECLevel.Text = "-";
+                lblHoursonCount.Text = "-";
+                lblCommunicationErrorCount.Text = "-";
+                lblMinDecodeCount.Text = "-";
+                lblMaxDecodeCount.Text = "-";
+                lblUSBResetCount.Text = "-";
+                lblUSBSuspedCount.Text = "-";
+                lblUSBResumeCount.Text = "-";
+                lbl1dDoubleRateTimeout.Text = "-";
+                lbl2dDoubleRateTimeout.Text = "-";
+                lblIlluSourceNo.Text = "-";
+                lblIlluSource1Health.Text = "-";
+                lblIlluSource2Health.Text = "-";
+                lblIlluSource3Health.Text = "-";
+                lblIlluSource4Health.Text = "-";
+                lblIlluSource5Health.Text = "-";
+                lblIlluSource6Health.Text = "-";
+                lblAddIlluSourceHealth.Text = "-";
+                lblMotorHealth.Text = "-";
+                lblLaser1Health.Text = "-";
+                lblLaser2Health.Text = "-";
+                lblLaser3Health.Text = "-";
+                lblLaser4Health.Text = "-";
+                lblImageDeviceNo.Text = "-";
+                lblImager1Health.Text = "-";
+                lblImager2Health.Text = "-";
+                lblImager3Health.Text = "-";
+                lblImager4Health.Text = "-";
+                lblImager5Health.Text = "-";
+                lblImager6Health.Text = "-";
+                lblAddImagerHealth.Text = "-";
+
+                lblConnectionType_2.Text = "-";
+                lblDeviceCategory_2.Text = "-";
+                lblEcLevel_2.Text = "-";
+                lblConfigIden_2.Text = "-";
+                lblFirmwareRevision_2.Text = "-";
+                lblManufacDate_2.Text = "-";
+                lblManufacName_2.Text = "-";
+                lblMechanicalRev_2.Text = "-";
+                lblModelName_2.Text = "-";
+                lblModelNumber_2.Text = "-";
+                lblPhysicalDeviceDes_2.Text = "-";
+                lblSerialNumber_2.Text = "-";
+
+                lblHealthStac_2.Text = "-";
+                lblZeroScale_2.Text = "-";
+                lblCalibrationNeeded_2.Text = "-";
+                lblMultiInterval_2.Text = "-";
+                lblNumberofManual_2.Text = "-";
+                lblRemoteDisplay_2.Text = "-";
+                lblRemoteScale_2.Text = "-";
+                lblWeightDigits_2.Text = "-";
+                lblWeightMode_2.Text = "-";
+                lblMaxWeight_2.Text = "-";
+                lblEnforceZero_2.Text = "-";
+                lblOperationMode_2.Text = "-";
+
+                lblVendorId.Text = "-";
+                lblProductId.Text = "-";
+            }
+		}
+
+        /// Nilusha
+        /// <summary>
+        /// Update the display depending on whether or not a scale is present
+        /// </summary>
+        /// <param name="IsOpen"></param>
+        private void DisplayScaleOpen(bool IsScaleOpen)
+        {
+            tabControl12.Enabled = true;
+            tabControl12.TabPages[0].Enabled = true;
+            tabControl12.TabPages[1].Enabled = true;
+
+            if (IsScaleOpen)
+            {
+                lblScaleStatus.Text = "Connected";
+                lblScaleStatus.ForeColor = Color.Green;
+                btnScaleReset.Enabled = true;
+                btn_Scale_Test.Enabled = true;
+                btnEnglishWeightRequest.Enabled = true;
+                btnMetricWeightRequest.Enabled = true;
+                btnDES.Enabled = true;
+                btnEES.Enabled = true;
+                btnClearRemortDisplay.Enabled = true;
+                button5.Enabled = true;
+                commandSendScale.Enabled = true;
+                btnScaleStatusRequest.Enabled = true;
+                btnZeroScale.Enabled = true;
+                btnFindScale.Enabled = false;
+                comboBox2.Enabled = false;
+                button2.Enabled = true;
+                button3.Enabled = true;
+                btnConfigScale.Enabled = true;
+                btnRemoteScaleConfig.Enabled = true;
+            }
+            else
+            {
+                lblScaleStatus.Text = "Disconnected";
+                lblScaleStatus.ForeColor = Color.Red;
+                tabControl12.SelectedIndex = 0;
+                btnScaleReset.Enabled = false;
+                btn_Scale_Test.Enabled = false;
+                btnEnglishWeightRequest.Enabled = false;
+                btnMetricWeightRequest.Enabled = false;
+                btnDES.Enabled = false;
+                btnEES.Enabled = false;
+                btnClearRemortDisplay.Enabled = false;
+                button5.Enabled = false;
+                commandSendScale.Enabled = false;
+                btnScaleStatusRequest.Enabled = false;
+                btnZeroScale.Enabled = false;
+                label58.BackColor = Color.White;
+                label59.ForeColor = Color.White;
+                label63.BackColor = Color.White;
+                label71.ForeColor = Color.White;
+                btnFindScale.Enabled = true;
+                comboBox2.Enabled = true;
+                button2.Enabled = false;
+                button3.Enabled = false;
+                btnConfigScale.Enabled = false;
+                btnRemoteScaleConfig.Enabled = false;
+                lblScaleManufacturer.Text = "-";
+                lblScalePID.Text = "-";
+                lblScaleVID.Text = "-";
+                lblScaleProduct.Text = "-";
+                lblScaleSerialNumber.Text = "-";
+            }
+        }
+
+		/// <summary>
+		/// Display the status of the scanner
+		/// </summary>
+		/// <param name="rsp"></param>
+		private void SetStatus(IBMSurePOSAPI.IBM_SCANNER_RESPONSE rsp)
+		{
+			IBMSurePOSAPI.IBMSurePOSResponse response = new IBMSurePOSAPI.IBMSurePOSResponse();
+			response.Response = rsp;
+            if (response.good_read_enabled) label72.BackColor = Color.Green;
+            else label72.BackColor = Color.White;
+            if (response.scanner_alive) label73.BackColor = Color.Green;
+            else label73.BackColor = Color.White;
+            if (response.scanner_enabled) label74.BackColor = Color.Green;
+            else label74.BackColor = Color.White;
+			good_read_beep.Checked = response.good_read_enabled;
+		}
+
+        /// <summary>
+        /// Display the status of the scale
+        /// </summary>
+        /// <param name="rsp"></param>
+        private void ScaleSetStatus(IBMSurePOSAPI.IBM_SCALE_RESPONSE rsps)
+        {
+            IBMSurePOSAPI.IBMSurePOSScaleResponse response = new IBMSurePOSAPI.IBMSurePOSScaleResponse();
+            response.ScaleResponse = rsps;
+            if (!response.device_not_ready) label58.BackColor = Color.Green;
+            else label58.BackColor = Color.White;
+            if (response.extend_status_resp) label59.BackColor = Color.Green;
+            else label59.BackColor = Color.White;
+            if (response.english_weight) label63.BackColor = Color.Green;
+            else label63.BackColor = Color.White;
+            if (response.metric_weight) label71.BackColor = Color.Green;
+            else label71.BackColor = Color.White;
+            if (response.unacceptable_command)
+            {
+                AddLabelTextBoxScaleLine("Unacceptable Command.");
+            }
+        }
+
+        /// <summary>
+        /// Display the status of the scale
+        /// </summary>
+        /// <param name="rsp"></param>
+        private void ScaleEnglishWeightRead(IBMSurePOSAPI.IBM_SCALE_RESPONSE rsps)
+        {
+            if (rsps.stat0 == 4)
+            {                
+                int EnglishWeightReading = 0;
+                string pounds = "";
+                string ounce = "";
+                for (int i = 1; i < 5; i++)
+                {
+                    EnglishWeightReading = Convert.ToInt32(rsps.rdata[i]);
+                    if (i == 1)
+                    {
+                        pounds = EnglishWeightReading.ToString();
+                    }
+                    else
+                    {
+                        ounce += EnglishWeightReading.ToString();
+                    }
+
+                }
+                WeightEnglish.Text = pounds + "." + ounce; 
+            }
+            else
+            {                
+                int EnglishWeightReading = 0;
+                string pounds = "";
+                string ounce = "";
+                for (int i = 0; i < 5; i++)
+                {
+                    EnglishWeightReading = Convert.ToInt32(rsps.rdata[i]);
+                    if (i == 0)
+                    {
+                        pounds = EnglishWeightReading.ToString();
+                    }
+                    else
+                    {
+                        ounce += EnglishWeightReading.ToString();
+                    }
+
+                }
+                WeightEnglish.Text = pounds + "." + ounce; 
+            }
+            
+        }
+
+        /// <summary>
+        /// Display the status of the scale
+        /// </summary>
+        /// <param name="rsp"></param>
+        private void ScaleMetricWeightRead(IBMSurePOSAPI.IBM_SCALE_RESPONSE rsps)
+        {
+            if (rsps.stat0 == 4)
+            {
+                int EnglishWeightReading = 0;
+                string kg = "";
+                string gram = "";
+                for (int i = 1; i < 5; i++)
+                {
+                    EnglishWeightReading = Convert.ToInt32(rsps.rdata[i]);
+                    if (i == 1)
+                    {
+                        kg = EnglishWeightReading.ToString();
+                    }
+                    else
+                    {
+                        gram += EnglishWeightReading.ToString();
+                    }
+                }
+                WeightMetric.Text = kg + "." + gram;
+            }
+            else
+            {
+                int EnglishWeightReading = 0;
+                string kg = "";
+                string gram = "";
+                for (int i = 0; i < 5; i++)
+                {
+                    EnglishWeightReading = Convert.ToInt32(rsps.rdata[i]);
+                    if (i == 0)
+                    {
+                        kg = EnglishWeightReading.ToString();
+                    }
+                    else
+                    {
+                        gram += EnglishWeightReading.ToString();
+                    }
+                }
+                WeightMetric.Text = kg + "." + gram;
+            }
+        }
+
+        /// <summary>
+        /// Thread to receive barcode scan data
+        /// </summary>
+        private void ScanningThread()
+		{
+            IBMSurePOSAPI.LABEL_QUEUE_ENTRY label = new IBMSurePOSAPI.LABEL_QUEUE_ENTRY();
+            while (!m_ExitThread)
+			{
+				string labelString = "";
+                string dataString = "";
+                DateTimeOffset now = (DateTimeOffset)DateTime.Now;
+                if (IBMSurePOSAPI.IBMSUREPOS_ReadLabel(m_Scanner, ref label))
+				{
+                    labelString = "ReadLabel: Type = 0x" + label.wType.ToString("X") + ", Data = ";
+                    
+					for (int i = 0; i < label.dwLength; i++)
+					{						
+						labelString += (char)label.abLabelData[i];
+                        dataString += (char)label.abLabelData[i];
+					}					
+					AddLabelTextBoxLine(labelString);
+                    char[] charValues = dataString.ToCharArray();
+                    string hexOutput = "";
+                    foreach (char _eachChar in charValues)
+                    {
+                        // Get the integral value of the character.
+                        int value = Convert.ToInt32(_eachChar);
+                        // Convert the decimal value to a hexadecimal value in string form.
+                        hexOutput += String.Format("{0:X2} ", value);
+                    }
+
+                    // Update UI on the main thread
+                    this.Invoke((MethodInvoker)delegate
+                    {
+                        rowCount++;
+                        table1.Rows.Add(now.ToString("HH:mm:ss"), comboBox1.SelectedItem, hexOutput, "D");
+                        table2.Rows.Add(now.ToString("HH:mm:ss"), "D", LabelDataType(label.wType), comboBox1.SelectedItem, "", "", "", hexOutput, "");
+
+                        dataGridView3.FirstDisplayedScrollingRowIndex = dataGridView3.RowCount - 1;
+                    });
+                }
+                System.Threading.Thread.Sleep(50);               
+            }
+        }
+
+        /// <summary>
+		/// Lookup fundtion for response description
+		/// </summary>
+        private string responseDescription(string cmd)
+        {
+            string responseDescription = "";
+            Dictionary<string, string> cmdLookupTable = new Dictionary<string, string>()
+            {
+                {"11,00", "Enable Scanner"},
+                {"12,00","Disable Scanner" },
+                {"14,00","Enable Beeper" },
+                {"18,00","Disable Beeper" },
+                {"20,00","Configure Scanner" },
+                {"21,00","Report Scanner Configuration" },
+                {"23,00","Configure EAN/JAN-13 Two-Label Flags" },
+                {"31,00","Report EAN/JAN-13 Two-Label Flag Configuration" },
+                {"30,","Direct I/O Command (short)" },
+                {"35,","Direct I/O Command (long)" },
+                {"00,10","Test Request" },
+                {"00,20","Status Request"},
+                {"00,40","System Reset" },
+                {"01,00","English Weight Request"},
+                {"02,00","Metric Weight Request" },
+                {"03,00","Zero Scale" },
+                {"04,00","Enable Extended (3-Byte) Status" },
+                {"05,00","Disable Extended (3-Byte) Status" }
+            };
+
+            if (cmdLookupTable.TryGetValue(cmd, out responseDescription))
+            {
+                responseDescription = cmdLookupTable[cmd];
+            }
+            return responseDescription;
+        }
+
+        /// <summary>
+		/// lookup function for Scan label data type 
+		/// </summary>
+        private string LabelDataType(int labelTypeId)
+        {
+            switch (labelTypeId)
+            {
+                case 101:
+                    return "UPC-A";
+                case 102:
+                    return "UPC-E";
+                case 103:
+                    return "EAN/JAN-8";
+                case 104:
+                    return "EAN/JAN-13";
+                case 109:
+                    return "Code93";
+                case 108:
+                    return "Code39";
+                case 110:
+                    return "Code128";
+                case 111:
+                    return "UPC-A + supplemental";
+                case 112:
+                    return "UPC-E + supplemental";
+                case 113:
+                    return "UPC-D1";
+                case 114:
+                    return "UPC-D2";
+                case 115:
+                    return "UPC-D3";
+                case 116:
+                    return "UPC-D4";
+                case 117:
+                    return "UPC-D5";
+                case 118:
+                    return "EAN-8 + supplemental";
+                case 119:
+                    return "EAN-13 + supplemental";
+                case 120:
+                    return "EAN128";
+                case 121:
+                    return "OCR A";
+                case 122:
+                    return "OCR B";
+                default:
+                    return "Unknown";
+            }
+        }
+
+        /// <summary>
+		/// Add new data to table in dataGridView (Scan)
+		/// </summary>
+        private void AddRowsToTables(string cmd_str, string hostCommand, IBMSurePOSAPI.IBM_SCANNER_RESPONSE response)
+        {
+            DateTimeOffset now = (DateTimeOffset)DateTime.Now;
+            rowCount++;
+            table1.Rows.Add(now.ToString("HH:mm:ss"), comboBox1.SelectedItem, hostCommand, "Host Cmd");
+            table2.Rows.Add(now.ToString("HH:mm:ss"), "Host", "Host Cmd", comboBox1.SelectedItem, "", "", "", hostCommand, "");
+            rowCount++;
+            var rdataValue = new StringBuilder();
+            foreach (var item in response.rdata)
+            {
+                rdataValue.Append(" " + Convert.ToString(item, 2).PadLeft(2, '0'));
+            }
+
+            table1.Rows.Add(now.ToString("HH:mm:ss"), comboBox1.SelectedItem, Convert.ToString(response.length, 16).PadLeft(2, '0') + " " + Convert.ToString(response.stat0, 2).PadLeft(2, '0') + " " +
+                Convert.ToString(response.stat1, 2).PadLeft(2, '0') + " " + Convert.ToString(response.stat2, 2).PadLeft(2, '0') + Convert.ToString(rdataValue), "Device");
+
+            table2.Rows.Add(now.ToString("HH:mm:ss"), "Device", responseDescription(cmd_str), comboBox1.SelectedItem, Convert.ToString(response.stat0, 16).PadLeft(2, '0'),
+                Convert.ToString(response.stat1, 16).PadLeft(2, '0'), Convert.ToString(response.stat2, 16).PadLeft(2, '0'), "", "");
+
+        }
+
+        /// <summary>
+		/// Add new data to table in dataGridView (Scale)
+		/// </summary>
+        private void AddRowsToScaleTables(string cmd_str, string hostCommand, IBMSurePOSAPI.IBM_SCALE_RESPONSE response)
+        {
+            DateTimeOffset now = (DateTimeOffset)DateTime.Now;
+            rowCount++;
+            table4.Rows.Add(now.ToString("HH:mm:ss"), comboBox2.SelectedItem, hostCommand, "Host Cmd");
+            table5.Rows.Add(now.ToString("HH:mm:ss"), "Host", "Host Cmd", comboBox2.SelectedItem, "", "", "", hostCommand, "");
+            rowCount++;
+            var rdataValue = new StringBuilder();
+            foreach (var item in response.rdata)
+            {
+                rdataValue.Append(" " + Convert.ToString(item, 2).PadLeft(2, '0'));
+            }
+
+            table4.Rows.Add(now.ToString("HH:mm:ss"), comboBox2.SelectedItem, Convert.ToString(response.stat0, 16).PadLeft(2, '0') + " " + Convert.ToString(response.stat1, 2).PadLeft(2, '0') + " " +
+                Convert.ToString(response.stat2, 2).PadLeft(2, '0') + " " + Convert.ToString(rdataValue), "Device");
+
+            table5.Rows.Add(now.ToString("HH:mm:ss"), "Device", responseDescription(cmd_str), comboBox1.SelectedItem, Convert.ToString(response.stat0, 16).PadLeft(2, '0'),
+                Convert.ToString(response.stat1, 16).PadLeft(2, '0'), Convert.ToString(response.stat2, 16).PadLeft(2, '0'), "", "");
+        }
+
+        /// <summary>
+		/// Send manual command to scan
+		/// </summary>
+        private void SendCommand(string command)
+        {
+            string cmd_str = textBox1.Text + "," + textBox2.Text;
+            IBMSurePOSAPI.IBM_SCANNER_RESPONSE response = new IBMSurePOSAPI.IBM_SCANNER_RESPONSE();
+
+            string hostCommand = textBox1.Text + " " + textBox2.Text + " " + textBox3.Text + " " + textBox4.Text + " " + textBox5.Text + " " + textBox6.Text
+                + " " + textBox7.Text + " " + textBox8.Text + " " + textBox9.Text + " " + textBox10.Text + " " + textBox11.Text;
+            if (IBMSurePOSAPI.IBMSUREPOS_ManualCommand(m_Scanner, command, ref response))
+            {
+                    AddLabelTextBoxLine("succeeded.");
+                    SetStatus(response);
+                    AddRowsToTables(cmd_str, hostCommand, response);                  
+            }
+            else
+            {
+                    AddLabelTextBoxLine("failed/timed out.");
+            }
+        }
+
+        /// <summary>
+		/// Send manual command to scale
+		/// </summary>
+        private void SendCommandScale (string command)
+        {
+            string cmd_str = txtboxScale_1.Text + "," + txtboxScale_2.Text;
+            IBMSurePOSAPI.IBM_SCALE_RESPONSE response = new IBMSurePOSAPI.IBM_SCALE_RESPONSE();
+            DateTimeOffset now = (DateTimeOffset)DateTime.Now;
+
+            string hostCommand = txtboxScale_1.Text + " " + txtboxScale_2.Text + " " + txtboxScale_3.Text + " " + txtboxScale_4.Text + " " + txtboxScale_5.Text;
+            if (IBMSurePOSAPI.IBMSUREPOS_ManualCommandScale(m_Scale, command, ref response))
+            {
+                AddLabelTextBoxScaleLine("succeeded.");
+                ScaleSetStatus(response);
+                AddRowsToScaleTables(cmd_str, hostCommand, response);
+                /*rowCount++;
+                table4.Rows.Add(now.ToString("HH:mm:ss"), comboBox2.SelectedItem, hostCommand, "Host Cmd");
+                table5.Rows.Add(now.ToString("HH:mm:ss"), "Host", "Host Cmd", comboBox2.SelectedItem, "", "", "", hostCommand, "");
+                rowCount++;
+                var rdataValue = new StringBuilder();
+                foreach (var item in response.rdata)
+                {
+                    rdataValue.Append(" " + Convert.ToString(item, 2).PadLeft(2, '0'));
+                }
+
+                table4.Rows.Add(now.ToString("HH:mm:ss"), comboBox2.SelectedItem, Convert.ToString(response.stat0, 16).PadLeft(2, '0') + " " + Convert.ToString(response.stat1, 2).PadLeft(2, '0') + " " +
+                    Convert.ToString(response.stat2, 2).PadLeft(2, '0') + " " + Convert.ToString(rdataValue), "Device");
+
+                table5.Rows.Add(now.ToString("HH:mm:ss"), "Device", responseDescription(cmd_str), comboBox1.SelectedItem, Convert.ToString(response.stat0, 16).PadLeft(2, '0'),
+                    Convert.ToString(response.stat1, 16).PadLeft(2, '0'), Convert.ToString(response.stat2, 16).PadLeft(2, '0'), "", "");
+*/
+            }
+            else
+            {
+                AddLabelTextBoxScaleLine("failed/timed out.");
+            }
+        }
+
+        /// <summary>
+		/// Manual command string for Scan
+		/// </summary>
+        private void ManualCommand(ref string command)
+        {
+            command = "0x" + textBox1.Text + ",0x" + textBox2.Text + ",0x" + textBox3.Text + ",0x" + textBox4.Text + ",0x" + textBox5.Text + ",0x" + textBox6.Text
+                + ",0x" + textBox7.Text + ",0x" + textBox8.Text + ",0x" + textBox9.Text + ",0x" + textBox10.Text + ",0x" + textBox11.Text;
+        }
+
+        /// <summary>
+		/// Manual command string for Scale
+		/// </summary>
+        private void ManualCommandScale(ref string command)
+        {
+            command = "0x" + txtboxScale_1.Text + ",0x" + txtboxScale_2.Text + ",0x" + txtboxScale_3.Text + ",0x" + txtboxScale_4.Text + 
+                      ",0x" + txtboxScale_5.Text ;
+        }
+
+        /// <summary>
+		/// Get data from json file to fill the comboBox (Scan)
+		/// </summary>
+        private void LoadDataFromFile()
+        {
+            try {
+                string json = File.ReadAllText("data.json");
+                dataDict = JsonConvert.DeserializeObject<Dictionary<int, Dictionary<string, string>>>(json);
+
+                FillComboBox();
+            }
+            catch (Exception ex)
+            {
+                AddLabelTextBoxLine("Error loading data from JSON file: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+		/// Get data from json file to fill the comboBox (Scale)
+		/// </summary>
+        private void LoadScaleDataFromFile()
+        {
+            try
+            {
+                string jsonScale = File.ReadAllText("dataScale.json");
+                dataDictScale = JsonConvert.DeserializeObject<Dictionary<int, Dictionary<string, string>>>(jsonScale);
+                FillComboBoxScale();
+            }
+            catch(Exception ex)
+            {
+                AddLabelTextBoxScaleLine("Error loading data from JSON file: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+		/// Fill the save data to combo box (Scan)
+		/// </summary>
+        private void FillComboBox()
+        {
+            selectSaveComm.Items.Clear();
+            foreach (var item in dataDict.Values)
+            {
+                selectSaveComm.Items.Add(item["Description"]);
+            }
+            selectSaveComm.DropDown += selectSaveComm_SelectedIndexChanged_DropDown;
+        }
+
+        /// <summary>
+		/// Fill the save data to combo box (Scale)
+		/// </summary>
+        private void FillComboBoxScale()
+        {
+            selectSaveCommScale.Items.Clear();
+            foreach (var item in dataDictScale.Values)
+            {
+                selectSaveCommScale.Items.Add(item["Description"]);
+            }
+            selectSaveCommScale.DropDown += selectSaveCommScale_SelectedIndexChanged_DropDowm;
+
+        }
+
+
+        private void selectSaveComm_SelectedIndexChanged_DropDown(object sender, EventArgs e)
+        {
+            // Refresh the ComboBox when it is clicked
+            FillComboBox();
+        }
+
+        private void selectSaveCommScale_SelectedIndexChanged_DropDowm(object sender, EventArgs e)
+        { 
+            FillComboBoxScale(); 
+        }
+
+        /// <summary>
+        /// Reset the UI
+        /// </summary>
+        private void RestAllData()
+        {
+            table1.Clear();
+            table2.Clear();
+            
+            attributeDataGrid.Rows.Clear();
+            lblConnectionType.ResetText();
+            lblDeviceCategory.ResetText();
+            lblNoOfDevice.ResetText();
+            lblEcLevelData.ResetText();
+            lblConfiguration.ResetText();
+            lblFirmwareVersion.ResetText();
+            lblManufacDate.ResetText();
+            lblManufacName.ResetText();
+            lblMechVersion.ResetText();
+            lblModelName.ResetText();
+            lblModelNo.ResetText();
+            lblDeviceDescription.ResetText();
+            lblSerialNo.ResetText();
+            lblAuxVID.ResetText();
+            lblAuxPID.ResetText();
+            lblAuxECLevel.ResetText();
+            lblHealthStat.ResetText();
+
+            lblImageDeviceNo.ResetText();
+            lblAddIlluSourceHealth.ResetText();
+            lblIlluSourceNo.ResetText();
+            lblAddImagerHealth.ResetText();
+            lblEASPresent.ResetText();
+            lblEASHealth.ResetText();
+            lblDigitalWatermark.ResetText();
+            lblHoursonCount.ResetText();
+            lblCommunicationErrorCount.ResetText();
+            lblMinDecodeCount.ResetText();
+            lblMaxDecodeCount.ResetText();
+            lblUSBResetCount.ResetText();
+            lblUSBSuspedCount.ResetText();
+            lblUSBResumeCount.ResetText();
+            lbl1dDoubleRateTimeout.ResetText();
+            lbl2dDoubleRateTimeout.ResetText();
+            lblConnectionType_2.ResetText();
+            lblDeviceCategory_2.ResetText();
+            lblEcLevel_2.ResetText();
+            lblConfigIden_2.ResetText();
+            lblFirmwareRevision_2.ResetText();
+            lblManufacDate_2.ResetText();
+            lblManufacName_2.ResetText();
+            lblMechanicalRev_2.ResetText();
+            lblModelName_2.ResetText();
+            lblModelNumber_2.ResetText();
+            lblPhysicalDeviceDes_2.ResetText();
+            lblSerialNumber_2.ResetText();
+            lblHealthStac_2.ResetText();
+            lblZeroScale_2.ResetText();
+            lblCalibrationNeeded_2.ResetText();
+            lblMultiInterval_2.ResetText();
+            lblRemoteScale_2.ResetText();
+            lblRemoteDisplay_2.ResetText();
+            lblWeightMode_2.ResetText();
+            lblMaxWeight_2.ResetText();
+            lblOperationMode_2.ResetText();
+            lblEnforceZero_2.ResetText();
+            lblWeightDigits_2.ResetText();
+            DeviceCount.ResetText();
+            lblVendorId.ResetText();
+            lblProductId.ResetText();
+            lblEcLevel.ResetText();
+            label41.ResetText();
+
+            upca_e_ean8_13.Checked = false;
+            upcd1_to_d5.Checked = false;
+            code39.Checked = false;
+            i2of5.Checked = false;
+            codabar.Checked = false;
+            code93.Checked = false;
+            code128.Checked = false;
+            uccean128.Checked = false;
+            supps_2dig.Checked = false;
+            supps_5dig.Checked = false;
+            code128_supps.Checked = false;
+            upca_check.Checked = false;
+            upce_check.Checked = false;
+            code39_check.Checked = false;
+            itf_check.Checked = false;
+            s2of5.Checked = false;
+            ean_two_label.Checked = false;
+            upca_to_ean13.Checked = false;
+            upce_to_ean13.Checked = false;
+            upce_to_upca.Checked = false;
+            price_check_4dig.Checked = false;
+            price_check_5dig.Checked = false;
+            good_read_beep.Checked = false;
+            itf_two_lens.Checked = false;
+            itf_range_lens.Checked = false;
+            laser_switch.Checked=false;
+            volume_switch.Checked=false;
+            barcode_program.Checked= false;
+            cbEnglishWeightMode.Checked = false;
+            cbDisplayRequired.Checked=false;
+            cbCenterOfZero.Checked = false;
+            cbZeroReturn.Checked = false;
+            cbFourDigitWeight.Checked = false;
+        }
+
+        /// <summary>
+        /// Set the scanner configuration
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void btnSetConfiguration_Click(object sender, EventArgs e)
+		{
+			IBMSurePOSAPI.IBMSurePOSConfig config = new IBMSurePOSAPI.IBMSurePOSConfig();
+			IBMSurePOSAPI.IBMSurePOSResponse response = new IBMSurePOSAPI.IBMSurePOSResponse();
+			IBMSurePOSAPI.IBM_SCANNER_RESPONSE rsp = new IBMSurePOSAPI.IBM_SCANNER_RESPONSE();
+			IBMSurePOSAPI.IBM_SCANNER_CONFIG cfg;
+
+			// cfg0
+			config.upca_e_ean8_13 = upca_e_ean8_13.Checked;
+			config.upcd1_to_d5 = upcd1_to_d5.Checked;
+			config.code39 = code39.Checked;
+			config.i2of5 = i2of5.Checked;
+			config.codabar = codabar.Checked;
+			config.code93 = code93.Checked;
+			config.code128 = code128.Checked;
+			config.uccean128 = uccean128.Checked;
+
+			// cfg1
+			config.supps_2dig = supps_2dig.Checked;
+			config.supps_5dig = supps_5dig.Checked;
+			config.code128_supps = code128_supps.Checked;
+			config.upca_check = upca_check.Checked;
+			config.upce_check = upce_check.Checked;
+			config.code39_check = code39_check.Checked;
+			config.itf_check = itf_check.Checked;
+			config.s2of5 = s2of5.Checked;
+
+			// cfg2
+			config.ean_two_label = ean_two_label.Checked;
+			config.upca_to_ean13 = upca_to_ean13.Checked;
+			config.upce_to_ean13 = upce_to_ean13.Checked;
+			config.upce_to_upca = upce_to_upca.Checked;
+			config.price_check_4dig = price_check_4dig.Checked;
+			config.price_check_5dig = price_check_5dig.Checked;
+			
+			// cfg3
+			config.good_read_beep = good_read_beep.Checked;
+			config.beeper_duration = (byte)beeper_duration.SelectedIndex;
+			config.beeper_freq = (byte)beeper_freq.SelectedIndex;
+			config.beeper_volume = (byte)beeper_volume.SelectedIndex;
+
+			// cfg4
+			config.motor_timeout = (byte)motor_timeout.SelectedIndex;
+			config.laser_timeout = (byte)laser_timeout.SelectedIndex;
+			config.double_read = (byte)double_read.SelectedIndex;
+
+			// cfg5
+			config.security_level = (byte)security_level.SelectedIndex;
+
+			// cfg6
+			config.itf_two_lens = itf_two_lens.Checked;
+			config.itf_range_lens = itf_range_lens.Checked;
+			config.itf_length1 = (byte)itf_length1.Value;
+
+			// cfg7
+			config.itf_length2 = (byte)itf_length2.Value;
+
+			// cfg8
+			config.led_good_read = (byte)led_good_read.SelectedIndex;
+			config.barcode_program = barcode_program.Checked;
+			config.laser_switch = laser_switch.Checked;
+			config.volume_switch = volume_switch.Checked;
+
+			cfg = config.Config;
+						
+			if (IBMSurePOSAPI.IBMSUREPOS_SetConfig(m_Scanner, ref cfg, ref rsp))
+			{
+				string cfgresult = "";
+				response.Response = rsp;
+
+				if (response.config_success) {
+					cfgresult = "success";
+					if (response.config_coerced) {
+						cfgresult += " (COERCED)";
+					}
+				}
+				else
+				{
+					cfgresult = "failed";
+				}
+				AddLabelTextBoxLine("SetConfig() result: " + cfgresult);
+				SetStatus(rsp);
+			}
+			else
+			{
+				AddLabelTextBoxLine("SetConfig() failed/timed out.");
+			}			
+		}
+
+		/// <summary>
+		/// Get the scanner configuration
+		/// </summary>
+		/// <param name="sender"></param>
+		/// <param name="e"></param>
+		private void btnGetConfig_Click(object sender, EventArgs e)
+		{	
+			IBMSurePOSAPI.IBMSurePOSConfig config = new IBMSurePOSAPI.IBMSurePOSConfig();
+			IBMSurePOSAPI.IBMSurePOSResponse response = new IBMSurePOSAPI.IBMSurePOSResponse();
+			IBMSurePOSAPI.IBM_SCANNER_RESPONSE rsp = new IBMSurePOSAPI.IBM_SCANNER_RESPONSE();
+			IBMSurePOSAPI.IBM_SCANNER_CONFIG cfg = new IBMSurePOSAPI.IBM_SCANNER_CONFIG();
+
+			if (IBMSurePOSAPI.IBMSUREPOS_GetConfig(m_Scanner, ref cfg, ref rsp))
+			{				
+				AddLabelTextBoxLine("GetConfig() succeeded");
+				SetStatus(rsp);
+				config.Config = cfg;
+
+				// cfg0
+				upca_e_ean8_13.Checked = config.upca_e_ean8_13;
+				upcd1_to_d5.Checked = config.upcd1_to_d5;
+				code39.Checked = config.code39;
+				i2of5.Checked = config.i2of5;
+				codabar.Checked = config.codabar;
+				code93.Checked = config.code93;
+				code128.Checked = config.code128;
+				uccean128.Checked = config.uccean128;
+
+				// cfg1
+				supps_2dig.Checked = config.supps_2dig;
+				supps_5dig.Checked = config.supps_5dig;
+				code128_supps.Checked = config.code128_supps;
+				upca_check.Checked = config.upca_check;
+				upce_check.Checked = config.upce_check;
+				code39_check.Checked = config.code39_check;
+				itf_check.Checked = config.itf_check;
+				s2of5.Checked = config.s2of5;
+
+				// cfg2
+				ean_two_label.Checked = config.ean_two_label;
+				upca_to_ean13.Checked = config.upca_to_ean13;
+				upce_to_ean13.Checked = config.upce_to_ean13;
+				upce_to_upca.Checked = config.upce_to_upca;
+				price_check_4dig.Checked = config.price_check_4dig;
+				price_check_5dig.Checked = config.price_check_5dig;
+
+				// cfg3
+				good_read_beep.Checked = config.good_read_beep;
+				beeper_duration.SelectedIndex = config.beeper_duration;
+				beeper_freq.SelectedIndex = config.beeper_freq;
+				beeper_volume.SelectedIndex = config.beeper_volume;
+
+				// cfg4
+				motor_timeout.SelectedIndex = config.motor_timeout;
+				laser_timeout.SelectedIndex = config.laser_timeout;
+				double_read.SelectedIndex = config.double_read;
+
+				// cfg5
+				security_level.SelectedIndex = config.security_level;
+
+				// cfg6
+				itf_two_lens.Checked = config.itf_two_lens;
+				itf_range_lens.Checked = config.itf_range_lens;
+				itf_length1.Value = config.itf_length1;
+
+				// cfg7
+				itf_length2.Value = config.itf_length2;
+
+				// cfg8
+				led_good_read.SelectedIndex = config.led_good_read;
+				barcode_program.Checked = config.barcode_program;
+				laser_switch.Checked = config.laser_switch;
+				volume_switch.Checked = config.volume_switch;	
+			}
+			else
+			{
+				AddLabelTextBoxLine("GetConfig() failed/timed out.");
+			}			
+		}
+
+
+
+		/// <summary>
+		/// Send a Test request to the scanner
+		/// </summary>
+		/// <param name="sender"></param>
+		/// <param name="e"></param>
+		private void btnTestRequest_Click(object sender, EventArgs e)
+		{
+			IBMSurePOSAPI.IBM_SCANNER_RESPONSE response = new IBMSurePOSAPI.IBM_SCANNER_RESPONSE();
+			if (IBMSurePOSAPI.IBMSUREPOS_Test(m_Scanner, ref response))
+			{
+				AddLabelTextBoxLine("Test() succeeded.");
+				SetStatus(response);
+			}
+			else
+			{
+				AddLabelTextBoxLine("Test() failed/timed out.");
+			}			
+		}
+
+		/// <summary>
+		/// Send a Status request to the scanner
+		/// </summary>
+		/// <param name="sender"></param>
+		/// <param name="e"></param>
+		private void btnStatusRequest_Click(object sender, EventArgs e)
+		{
+			IBMSurePOSAPI.IBM_SCANNER_RESPONSE response = new IBMSurePOSAPI.IBM_SCANNER_RESPONSE();
+			if (IBMSurePOSAPI.IBMSUREPOS_ReadStatus(m_Scanner, ref response))
+			{
+				AddLabelTextBoxLine("ReadStatus() succeeded.");
+				SetStatus(response);
+			}
+			else
+			{
+				AddLabelTextBoxLine("ReadStatus() failed/timed out.");
+			}		
+		}
+
+		/// <summary>
+		/// Reset the scanner
+		/// </summary>
+		/// <param name="sender"></param>
+		/// <param name="e"></param>
+		private void btnReset_Click(object sender, EventArgs e)
+		{
+			IBMSurePOSAPI.IBM_SCANNER_RESPONSE response = new IBMSurePOSAPI.IBM_SCANNER_RESPONSE();
+			IBMSurePOSAPI.IBMSUREPOS_Reset(m_Scanner, ref response);			
+		}
+
+		/// <summary>
+		/// Enable the scanner
+		/// </summary>
+		/// <param name="sender"></param>
+		/// <param name="e"></param>
+		private void btnEnableScanner_Click(object sender, EventArgs e)
+		{
+			IBMSurePOSAPI.IBM_SCANNER_RESPONSE response = new IBMSurePOSAPI.IBM_SCANNER_RESPONSE();
+			if (IBMSurePOSAPI.IBMSUREPOS_SetEnable(m_Scanner, 1, ref response))
+			{
+				AddLabelTextBoxLine("SetEnable(true) succeeded.");
+				SetStatus(response);
+			}
+			else
+			{
+				AddLabelTextBoxLine("SetEnable(true) failed/timed out.");
+			}
+		}
+
+		/// <summary>
+		/// Disable the scanner
+		/// </summary>
+		/// <param name="sender"></param>
+		/// <param name="e"></param>
+		private void btnDisableScanner_Click(object sender, EventArgs e)
+		{
+			IBMSurePOSAPI.IBM_SCANNER_RESPONSE response = new IBMSurePOSAPI.IBM_SCANNER_RESPONSE();
+			if (IBMSurePOSAPI.IBMSUREPOS_SetEnable(m_Scanner, 0, ref response))
+			{
+				AddLabelTextBoxLine("SetEnable(true) succeeded.");
+				SetStatus(response);
+			}
+			else
+			{
+				AddLabelTextBoxLine("SetEnable(true) failed/timed out.");
+			}
+		}
+
+		/// <summary>
+		/// Enable the good read beeper
+		/// </summary>
+		/// <param name="sender"></param>
+		/// <param name="e"></param>
+		private void btnEnableBeeper_Click(object sender, EventArgs e)
+		{
+			IBMSurePOSAPI.IBM_SCANNER_RESPONSE response = new IBMSurePOSAPI.IBM_SCANNER_RESPONSE();
+			if (IBMSurePOSAPI.IBMSUREPOS_SetBeep(m_Scanner, 1, ref response))
+			{
+				AddLabelTextBoxLine("SetBeep(true) succeeded.");
+                AddLabelTextBoxLine(response.rdata.ToString());
+				SetStatus(response);
+			}
+			else
+			{
+				AddLabelTextBoxLine("SetBeep(true) failed/timed out.");
+			}
+		}
+
+		/// <summary>
+		/// Disable the good read beeper
+		/// </summary>
+		/// <param name="sender"></param>
+		/// <param name="e"></param>
+		private void btnDisableBeeper_Click(object sender, EventArgs e)
+		{
+			IBMSurePOSAPI.IBM_SCANNER_RESPONSE response = new IBMSurePOSAPI.IBM_SCANNER_RESPONSE();
+			if (IBMSurePOSAPI.IBMSUREPOS_SetBeep(m_Scanner, 0, ref response))
+			{
+				AddLabelTextBoxLine("SetBeep(false) succeeded.");
+				SetStatus(response);
+			}
+			else
+			{
+				AddLabelTextBoxLine("SetBeep(false) failed/timed out.");
+			}
+		}
+
+        /// <summary>
+        /// Get Device Informaion
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void  btnGetDevInfo_Click(object sender, EventArgs e)
+        {
+            byte[] devInfo;
+
+            IBMSurePOSAPI.IBM_SCANNER_RESPONSE response = new IBMSurePOSAPI.IBM_SCANNER_RESPONSE();
+            if (IBMSurePOSAPI.IBMSUREPOS_GetDevInfo(m_Scanner, ref response))
+            {
+                AddLabelTextBoxLine("GetDeviceInfo() succeeded.");
+                devInfo = new byte[response.length];
+                Array.Copy(response.rdata, devInfo, response.length);
+
+                // VendorId
+                lblVendorId.Text = ((devInfo[2] << 8) | devInfo[1]).ToString();
+
+                // ProductId
+                lblProductId.Text = ((devInfo[4] << 8) | devInfo[3]).ToString();
+                //switch ((devInfo[4] << 8) | devInfo[3])
+                //{
+                //    case (int)IBMSurePOSAPI.UsbDeviceType.USB_IBM_HH_PRODUCT_ID:
+                //        lblProductId.Text = "IBM Handle-Held Scanner";
+                //        break;
+                //    case (int)IBMSurePOSAPI.UsbDeviceType.USB_IBM_TT_PRODUCT_ID:
+                //        lblProductId.Text = "IBM Table-Top Scanner";
+                //        break;
+                //    case (int)IBMSurePOSAPI.UsbDeviceType.USB_IBM_HH2_PRODUCT_ID:
+                //        lblProductId.Text = "IBM Hand-Held Scanner 2";
+                //        break;
+                //    case (int)IBMSurePOSAPI.UsbDeviceType.USB_IBM_TT2_PRODUCT_ID:
+                //        lblProductId.Text = "IBM Table-Top Scanner 2";
+                //        break;
+                //    default:
+                //        lblProductId.Text = "New Usb Device Type";
+                //        break;
+
+                //}
+
+                // ECLevel
+                lblEcLevel.Text = ((devInfo[6] << 8) | devInfo[5]).ToString();
+
+                SetStatus(response);
+            }
+            else
+            {
+                AddLabelTextBoxLine("GetDeviceInfo() failed/timed out.");
+            }
+        }
+
+        /// <summary>
+        /// Set Additional Symbologies
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void btnSetAddSymb_click(object sender, EventArgs e)
+        {
+            IBMSurePOSAPI.IBMSurePOSDIOConfig symbo = new IBMSurePOSAPI.IBMSurePOSDIOConfig();
+            IBMSurePOSAPI.IBMSurePOSResponse response = new IBMSurePOSAPI.IBMSurePOSResponse();
+            IBMSurePOSAPI.IBM_SCANNER_RESPONSE rsp = new IBMSurePOSAPI.IBM_SCANNER_RESPONSE();
+            IBMSurePOSAPI.IBM_SCANNER_DIO_CONFIG sym;
+
+            // sym0
+            symbo.gs1_databar = gs1_databar.Checked;
+            symbo.gs1_databar_expanded = gs1_databar_expanded.Checked;
+            symbo.gs1_databar_composites = gs1_databar_composites.Checked;
+            symbo.pdf417 = pdf417.Checked;
+            symbo.maxicode = maxicode.Checked;
+            symbo.ocr = ocr.Checked;
+
+            // sym1
+            symbo.datamatrix = datamatrix.Checked;
+            symbo.aztec = aztec.Checked;
+            symbo.qr_code = qr_code.Checked;
+            symbo.code49 = code49.Checked;
+            symbo.gs1_datamatrix = gs1_datamatrix.Checked;
+            symbo.gs1_qr_code = gs1_qr_code.Checked;
+            symbo.micropdf = micropdf.Checked;
+            symbo.microqr_code = microqr_code.Checked;
+
+            sym = symbo.Symbo;
+
+            if (IBMSurePOSAPI.IBMSUREPOS_SetAdditionalSymb(m_Scanner, ref sym, ref rsp))
+            {
+                string symresult = "";
+                response.Response = rsp;
+
+                if (response.directio_accepted)
+                {
+                    symresult = "success";
+                   
+                }
+                else
+                {
+                    symresult = "failed";
+                }
+                AddLabelTextBoxLine("Set Additional Symbologies() result: " + symresult);
+                SetStatus(rsp);
+            }
+            else
+            {
+                AddLabelTextBoxLine("Set Additional Symbologies() failed/timed out.");
+            }
+        }
+
+        /// <summary>
+        /// Get Scanner Generic Management Information
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void btnGSManagementInfo_Click(object sender, EventArgs e)
+        {
+            byte[] managementInfo = new byte[IBMSurePOSAPI.IBM_SCANNER_RESPONSE_DATA_LEN_GSMI_COMMAND];
+            IBMSurePOSAPI.IBM_SCANNER_RESPONSE response = new IBMSurePOSAPI.IBM_SCANNER_RESPONSE();
+            if (IBMSurePOSAPI.IBMSUREPOS_GetGenericScannerManagementInfo(m_Scanner, ref response, managementInfo))
+            {
+                AddLabelTextBoxLine("GetScannerGenericManagementInfo() succeeded.");
+            } 
+            else
+            {
+                AddLabelTextBoxLine("GetScannerGenericManagementInfo() failed/timed out.");
+                //return;
+            }
+
+            // Connection Type
+            if (managementInfo[0] == '0')
+            {
+                lblConnectionType.Text = "USB";
+            }
+            else if (managementInfo[0] == '1')
+            {
+                lblConnectionType.Text = "RS-485";
+            }
+            else if (managementInfo[0] == '2')
+            {
+                lblConnectionType.Text = "RS-232";
+            }
+            else if (managementInfo[0] == '3')
+            {
+                lblConnectionType.Text = "BlueTooth";
+            }
+            else if (managementInfo[0] == '4')
+            {
+                lblConnectionType.Text = "Ethernet";
+            }
+            else if (managementInfo[0] == ' ')
+            {
+                lblConnectionType.Text = " ";
+            }
+
+            // Device Categpry
+            if (managementInfo[1] == '0')
+            {
+                lblDeviceCategory.Text = "Flatbed Scanner only";
+            }
+            else if (managementInfo[1] == '1')
+            {
+                lblDeviceCategory.Text = "Flatbed Scanner/Scale";
+            }
+            else if (managementInfo[1] == '2')
+            {
+                    lblDeviceCategory.Text = "Flatbed Scanner only + USB aux-port Handheld";
+                }
+                else if (managementInfo[1] == '3')
+                {
+                    lblDeviceCategory.Text = "Flatbed Scanner only + RS-232 aux-port Handheld";
+                }
+                else if (managementInfo[1] == '4')
+                {
+                    lblDeviceCategory.Text = "Flatbed Scanner/Scale + USB aux-port Handheld";
+                }
+                else if (managementInfo[1] == '5')
+                {
+                    lblDeviceCategory.Text = "Flatbed Scanner/Scale + RS-232 aux-port Handheld";
+                }
+                else if (managementInfo[1] == '6')
+                {
+                    lblDeviceCategory.Text = "Handheld Scanner";
+                }
+                else if (managementInfo[1] == '7')
+                {
+                    lblDeviceCategory.Text = "USB Handheld Scanner attached via Flatbed aux port";
+                }
+                else if (managementInfo[1] == '8')
+                {
+                    lblDeviceCategory.Text = "RS-232 Handheld Scanner attached via Flatbed aux port";
+                }
+                else if (managementInfo[1] == ' ')
+                {
+                    lblDeviceCategory.Text = " ";
+                }
+                // Number of External Devices attached to the scanner
+                lblNoOfDevice.Text = Convert.ToChar(managementInfo[2]).ToString(); 
+
+                // EC Level
+                byte[] ecLevel = new byte[4];
+                Array.ConstrainedCopy(managementInfo, 3, ecLevel, 0, 4);
+                lblEcLevelData.Text = System.Text.Encoding.ASCII.GetString(ecLevel);
+
+                // Confiuration Identifier
+                byte[] configIdety = new byte[20];
+                Array.ConstrainedCopy(managementInfo, 7, configIdety, 0, 20);
+                lblConfiguration.Text = System.Text.Encoding.ASCII.GetString(configIdety);
+
+                // Firmware Revision (ROM Revision)
+                byte[] firmwareRev = new byte[20];
+                Array.ConstrainedCopy(managementInfo, 27, firmwareRev, 0, 20);
+                //Array.Reverse(firmwareRev, 0, firmwareRev.Length);
+                lblFirmwareVersion.Text = System.Text.Encoding.ASCII.GetString(firmwareRev);
+
+                // Manufacture Date (MMDDYYYY)
+                byte[] manufactureDate = new byte[8];
+                Array.ConstrainedCopy(managementInfo, 47, manufactureDate, 0, 8);
+                lblManufacDate.Text = System.Text.Encoding.ASCII.GetString(manufactureDate);   
+
+                // Manufacturer Name
+                byte[] manufactureName = new byte[20];
+                Array.ConstrainedCopy(managementInfo, 55, manufactureName, 0, 20);
+                lblManufacName.Text = System.Text.Encoding.ASCII.GetString(manufactureName);
+
+                // Mechanical Revision Value
+                byte[] mechanicalRev = new byte[5];
+                Array.ConstrainedCopy(managementInfo, 75, mechanicalRev, 0, 5);
+                lblMechVersion.Text = System.Text.Encoding.ASCII.GetString(mechanicalRev);
+
+                // Model Name
+                byte[] modelName = new byte[10];
+                Array.ConstrainedCopy(managementInfo, 80, modelName, 0, 10);
+                lblModelName.Text = System.Text.Encoding.ASCII.GetString(modelName);
+
+                // Model Number
+                byte[] modelNumber = new byte[20];
+                Array.ConstrainedCopy(managementInfo, 90, modelNumber, 0, 20);
+                lblModelNo.Text = System.Text.Encoding.ASCII.GetString(modelNumber);
+
+                // Physical Device Description
+                byte[] physicalDD = new byte[30];
+                Array.ConstrainedCopy(managementInfo, 110, physicalDD, 0, 30);
+                lblDeviceDescription.Text = System.Text.Encoding.ASCII.GetString(physicalDD);
+
+                // Serial Number
+                byte[] serialNo = new byte[40];
+                Array.ConstrainedCopy(managementInfo, 140, serialNo, 0, 40);
+                lblSerialNo.Text = System.Text.Encoding.ASCII.GetString(serialNo);
+
+                // Aux Port Device VID
+                byte[] auxVID = new byte[4];
+                Array.ConstrainedCopy(managementInfo, 180, auxVID, 0, 4);
+                lblAuxVID.Text = System.Text.Encoding.ASCII.GetString(auxVID);
+
+                // Aux Port Device PID
+                byte[] auxPID = new byte[4];
+                Array.ConstrainedCopy(managementInfo, 184, auxPID, 0, 4);
+                lblAuxPID.Text = System.Text.Encoding.ASCII.GetString(auxPID);
+
+                // Aux Port Device EC Level
+                byte[] auxEClevel = new byte[4];
+                Array.ConstrainedCopy(managementInfo, 188, auxEClevel, 0, 4);
+                lblAuxECLevel.Text = System.Text.Encoding.ASCII.GetString(auxEClevel);
+
+                // Health Statistics AvailableHealth Statistics Available
+                if (managementInfo[192] == '0')
+                {
+                    lblHealthStat.Text = "No";
+                }
+                else if (managementInfo[192] == '1')
+                {
+                    lblHealthStat.Text = "Yes";
+                }
+                else if (managementInfo[192] == ' ')
+                {
+                    lblHealthStat.Text = " ";
+                }
+
+                // Motor Health
+                Label[] motorHealth = { lblMotorHealth, lblLaser1Health, lblLaser2Health, lblLaser3Health, lblLaser4Health };
+                int index = 0;
+                foreach (Label lable in motorHealth)
+                {
+                    if (managementInfo[193 + index] == '0')
+                    {
+                        lable.Text = "Failed";
+                    }
+                    else if (managementInfo[193 + index] == '1')
+                    {
+                        lable.Text = "Working";
+                    }
+                    else if (managementInfo[193 + index] == '2')
+                    {
+                        lable.Text = "NA";
+                    }
+                    else if (managementInfo[193 + index] == ' ')
+                    {
+                        lable.Text = " ";
+                    }
+                    index++;
+                }
+
+                // Number of Imager Devices
+                lblImageDeviceNo.Text = Convert.ToChar(managementInfo[198]).ToString();
+
+                // Imager Health
+                Label[] imagerHealth = { lblImager1Health, lblImager2Health, lblImager3Health, lblImager4Health, lblImager5Health, lblImager6Health, lblAddImagerHealth };
+                index = 0;
+                foreach (Label lable in imagerHealth)
+                {
+                    if (managementInfo[199 + index] == '0')
+                    {
+                        lable.Text = "Failed";
+                    }
+                    else if (managementInfo[199 + index] == '1')
+                    {
+                        lable.Text = "Working";
+                    }
+                    else if (managementInfo[199 + index] == '2')
+                    {
+                        lable.Text = "NA";
+                    }
+                    else if (managementInfo[199 + index] == ' ')
+                    {
+                        lable.Text = " ";
+                    }
+                    index++;
+                }
+
+                // Number of Illumination Sources
+                if (managementInfo[205] == '0')
+                {
+                    lblAddIlluSourceHealth.Text = "Failed";
+                }
+                else if (managementInfo[205] == '1')
+                {
+                    lblAddIlluSourceHealth.Text = "Working";
+                }
+                else if (managementInfo[205] == '2')
+                {
+                    lblAddIlluSourceHealth.Text = "NA";
+                }
+                else if (managementInfo[205] == ' ')
+                {
+                    lblAddIlluSourceHealth.Text = " ";
+                }
+ 
+                // Number of Illumination Sources
+                lblIlluSourceNo.Text = Convert.ToChar(managementInfo[206]).ToString();
+
+                // Imager Health
+                Label[] illuminSource = { lblIlluSource1Health, lblIlluSource2Health, lblIlluSource3Health, lblIlluSource4Health, lblIlluSource5Health, lblIlluSource6Health };
+                index = 0;
+                foreach (Label lable in illuminSource)
+                {
+                    if (managementInfo[207 + index] == '0')
+                    {
+                        lable.Text = "Failed";
+                    }
+                    else if (managementInfo[207 + index] == '1')
+                    {
+                        lable.Text = "Working";
+                    }
+                    else if (managementInfo[207 + index] == '2')
+                    {
+                        lable.Text = "NA";
+                    }
+                    else if (managementInfo[207 + index] == ' ')
+                    {
+                        lable.Text = " ";
+                    }
+                    index++;
+                }
+
+                // Additional Illumination Source Health (beyond 6)
+                if (managementInfo[213] == '0')
+                {
+                    lblAddImagerHealth.Text = "Failed";
+                }
+                else if (managementInfo[213] == '1')
+                {
+                    lblAddImagerHealth.Text = "Working";
+                }
+                else if (managementInfo[213] == '2')
+                {
+                    lblAddImagerHealth.Text = "NA";
+                }
+                else if (managementInfo[213] == ' ')
+                {
+                    lblAddImagerHealth.Text = " ";
+                }
+
+                // EAS System Present
+                if (managementInfo[214] == '0')
+                {
+                    lblEASPresent.Text = "No";
+                }
+                else if (managementInfo[214] == '1')
+                {
+                    lblEASPresent.Text = "Yes";
+                }
+                else if (managementInfo[214] == ' ')
+                {
+                    lblEASPresent.Text = " ";
+                }
+
+                // EAS System Health
+                if (managementInfo[215] == '0')
+                {
+                    lblEASHealth.Text = "Failed";
+                }
+                else if (managementInfo[215] == '1')
+                {
+                    lblEASHealth.Text = "Working";
+                }
+                else if (managementInfo[215] == '2')
+                {
+                    lblEASHealth.Text = "NA";
+                }
+                else if (managementInfo[215] == ' ')
+                {
+                    lblEASHealth.Text = " ";
+                }
+
+                // Digital Watermark Reading Capable
+                if (managementInfo[216] == '0')
+                {
+                    lblDigitalWatermark.Text = "No";
+                }
+                else if (managementInfo[216] == '1')
+                {
+                    lblDigitalWatermark.Text = "Yes";
+                }
+                else if (managementInfo[216] == ' ')
+                {
+                    lblDigitalWatermark.Text = " ";
+                }
+
+                // Hours On Count
+                byte[] hoursCount = new byte[8];
+                Array.ConstrainedCopy(managementInfo, 217, hoursCount, 0, 8);
+                lblHoursonCount.Text = System.Text.Encoding.ASCII.GetString(hoursCount);
+
+                // Communication Error Count
+                byte[] comError = new byte[4];
+                Array.ConstrainedCopy(managementInfo, 225, comError, 0, 4);
+                lblCommunicationErrorCount.Text = System.Text.Encoding.ASCII.GetString(comError);
+
+                // Minimum Decode Time (milliseconds)
+                byte[] minDecTime = new byte[4];
+                Array.ConstrainedCopy(managementInfo, 229, minDecTime, 0, 4);
+                lblMinDecodeCount.Text = System.Text.Encoding.ASCII.GetString(minDecTime);
+
+                // Maximum Decode Time (milliseconds)
+                byte[] maxDecTime = new byte[4];
+                Array.ConstrainedCopy(managementInfo, 233, maxDecTime, 0, 4);
+                lblMaxDecodeCount.Text = System.Text.Encoding.ASCII.GetString(maxDecTime);
+
+                // Number of USB Resets (after last scanner power cycle)
+                byte[] usbReset = new byte[4];
+                Array.ConstrainedCopy(managementInfo, 237, usbReset, 0, 4);
+                lblUSBResetCount.Text = System.Text.Encoding.ASCII.GetString(usbReset);
+
+                // Number of USB Suspends (after last scanner power cycle)
+                byte[] usbSuspends = new byte[4];
+                Array.ConstrainedCopy(managementInfo, 241, usbSuspends, 0, 4);
+                lblUSBSuspedCount.Text = System.Text.Encoding.ASCII.GetString(usbSuspends);
+
+                // Number of USB Resumes (after last scanner power cycle)
+                byte[] usbResumes = new byte[4];
+                Array.ConstrainedCopy(managementInfo, 245, usbResumes, 0, 4);
+                lblUSBResumeCount.Text = System.Text.Encoding.ASCII.GetString(usbResumes);
+
+                // 1D Double Read Timeout (milliseconds)
+                byte[] ReadTime1 = new byte[4];
+                Array.ConstrainedCopy(managementInfo, 249, ReadTime1, 0, 4);
+                lbl1dDoubleRateTimeout.Text = System.Text.Encoding.ASCII.GetString(ReadTime1);
+
+                // 2D Double Read Timeout (milliseconds)
+                byte[] ReadTime2 = new byte[4];
+                Array.ConstrainedCopy(managementInfo, 253, ReadTime2, 0, 4);
+                lbl2dDoubleRateTimeout.Text = System.Text.Encoding.ASCII.GetString(ReadTime2);
+
+
+                SetStatus(response);
+
+        }
+
+        /// <summary>
+        /// Get Scale Generic Management Information
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void btnSGManagementInfo_Click(object sender, EventArgs e)
+        {
+
+            byte[] scaleInfo = new byte[IBMSurePOSAPI.IBM_SCANNER_RESPONSE_DATA_LEN_SGMI_COMMAND];
+            IBMSurePOSAPI.IBM_SCANNER_RESPONSE response = new IBMSurePOSAPI.IBM_SCANNER_RESPONSE();
+            if (IBMSurePOSAPI.IBMSUREPOS_GetScaleGenericManagementInfo(m_Scanner, ref response, scaleInfo))
+            {
+                AddLabelTextBoxLine("GetScaleGenericManagementInfo() succeeded.");
+            }
+            else
+            {
+                AddLabelTextBoxLine("GetScaleGenericManagementInfo() failed/timed out.");
+                return;
+            }
+
+            // Connection Type
+            if (scaleInfo[0] == '0')
+            {
+                lblConnectionType_2.Text = "USB";
+            }
+            else if (scaleInfo[0] == '1')
+            {
+                lblConnectionType_2.Text = "RS-485";
+            }
+            else if (scaleInfo[0] == '2')
+            {
+                lblConnectionType_2.Text = "RS-232";
+            }
+            else if (scaleInfo[0] == '3')
+            {
+                lblConnectionType_2.Text = "BlueTooth";
+            }
+            else if (scaleInfo[0] == '4')
+            {
+                lblConnectionType_2.Text = "Ethernet";
+            }
+            else if (scaleInfo[0] == ' ')
+            {
+                lblConnectionType_2.Text = "";
+            }
+
+            // Device Categpry
+            if (scaleInfo[1] == '0')
+            {
+                lblDeviceCategory_2.Text = "Scale only";
+            }
+            else if (scaleInfo[1] == '1')
+            {
+                lblDeviceCategory_2.Text = "Flatbed Scanner/Scale";
+            }
+            else if (scaleInfo[1] == ' ')
+            {
+                lblDeviceCategory_2.Text = "";
+            }
+            // EC Level
+            byte[] ecLevel = new byte[4];
+            Array.ConstrainedCopy(scaleInfo, 2, ecLevel, 0, 4);
+            lblEcLevel_2.Text = System.Text.Encoding.ASCII.GetString(ecLevel);
+
+            // Confiuration Identifier
+            byte[] configIdety = new byte[20];
+            Array.ConstrainedCopy(scaleInfo, 6, configIdety, 0, 20);
+            lblConfigIden_2.Text = System.Text.Encoding.ASCII.GetString(configIdety);
+
+            // Firmware Revision (ROM Revision)
+            byte[] firmwareRev = new byte[20];
+            Array.ConstrainedCopy(scaleInfo, 26, firmwareRev, 0, 20);
+            lblFirmwareRevision_2.Text = System.Text.Encoding.ASCII.GetString(firmwareRev);
+
+            // Manufacture Date (MMDDYYYY)
+            byte[] manufactureDate = new byte[8];
+            Array.ConstrainedCopy(scaleInfo, 46, manufactureDate, 0, 8);
+            lblManufacDate_2.Text = System.Text.Encoding.ASCII.GetString(manufactureDate);
+
+            // Manufacturer Name
+            byte[] manufactureName = new byte[20];
+            Array.ConstrainedCopy(scaleInfo, 54, manufactureName, 0, 20);
+            lblManufacName_2.Text = System.Text.Encoding.ASCII.GetString(manufactureName);
+
+            // Mechanical Revision Value
+            byte[] mechanicalRev = new byte[5];
+            Array.ConstrainedCopy(scaleInfo, 74, mechanicalRev, 0, 5);
+            lblMechanicalRev_2.Text = System.Text.Encoding.ASCII.GetString(mechanicalRev);
+
+            // Model Name
+            byte[] modelName = new byte[10];
+            Array.ConstrainedCopy(scaleInfo, 79, modelName, 0, 10);
+            lblModelName_2.Text = System.Text.Encoding.ASCII.GetString(modelName);
+
+            // Model Number
+            byte[] modelNumber = new byte[20];
+            Array.ConstrainedCopy(scaleInfo, 89, modelNumber, 0, 20);
+            lblModelNumber_2.Text = System.Text.Encoding.ASCII.GetString(modelNumber);
+
+            // Physical Device Description
+            byte[] physicalDD = new byte[30];
+            Array.ConstrainedCopy(scaleInfo, 109, physicalDD, 0, 30);
+            lblPhysicalDeviceDes_2.Text = System.Text.Encoding.ASCII.GetString(physicalDD);
+
+            // Serial Number
+            byte[] serialNo = new byte[40];
+            Array.ConstrainedCopy(scaleInfo, 139, serialNo, 0, 40);
+            lblSerialNumber_2.Text = System.Text.Encoding.ASCII.GetString(serialNo);
+
+            // Health Statistics AvailableHealth Statistics Available
+            if (scaleInfo[169] == '0')
+            {
+                lblHealthStac_2.Text = "No";
+            }
+            else if (scaleInfo[169] == '1')
+            {
+                lblHealthStac_2.Text = "Yes";
+            }
+            else if (scaleInfo[169] == ' ')
+            {
+                lblHealthStac_2.Text = "";
+            }
+            // Zero Scale Needed
+            if (scaleInfo[170] == '0')
+            {
+                lblZeroScale_2.Text = "Okay (at zero)";
+            }
+            else if (scaleInfo[170] == '1')
+            {
+                lblZeroScale_2.Text = "Underweight";
+            }
+            else if (scaleInfo[170] == '2')
+            {
+                lblZeroScale_2.Text = "Not at zero";
+            }
+            else if (scaleInfo[170] == '3')
+            {
+                lblZeroScale_2.Text = "Overweight";
+            }
+            else if (scaleInfo[170] == ' ')
+            {
+                lblZeroScale_2.Text = "";
+            }
+
+            // Calibration Needed
+            if (scaleInfo[171] == '0')
+            {
+                lblCalibrationNeeded_2.Text = "No";
+            }
+            else if (scaleInfo[171] == '1')
+            {
+                lblCalibrationNeeded_2.Text = "Yes";
+            }
+            else if (scaleInfo[171] == ' ')
+            {
+                lblCalibrationNeeded_2.Text = "";
+            }
+
+            // Multi-interval Scale Support
+            if (scaleInfo[172] == '0')
+            {
+                lblMultiInterval_2.Text = "No";
+            }
+            else if (scaleInfo[172] == '1')
+            {
+                lblMultiInterval_2.Text = "Yes";
+            }
+            else if (scaleInfo[172] == ' ')
+            {
+                lblMultiInterval_2.Text = "";
+            }
+            // Number of Manual Zeros
+            byte[] manualZero = new byte[4];
+            Array.ConstrainedCopy(scaleInfo, 173, manualZero, 0, 4);
+            lblNumberofManual_2.Text = System.Text.Encoding.ASCII.GetString(manualZero);
+
+            // Remote Scale Display Required
+            if (scaleInfo[177] == '0')
+            {
+                lblRemoteScale_2.Text = "No";
+            }
+            else if (scaleInfo[177] == '1')
+            {
+                lblRemoteScale_2.Text = "Yes";
+            }
+            else if (scaleInfo[177] == ' ')
+            {
+                lblRemoteScale_2.Text = "";
+            }
+
+            // Remote Display
+            if (scaleInfo[178] == '0')
+            {
+                lblRemoteDisplay_2.Text = "Failed";
+            }
+            else if (scaleInfo[178] == '1')
+            {
+                lblRemoteDisplay_2.Text = "Working";
+            }
+            else if (scaleInfo[178] == '2')
+            {
+                lblRemoteDisplay_2.Text = "Not Attached";
+            }
+            else if (scaleInfo[178] == ' ')
+            {
+                lblRemoteDisplay_2.Text = "";
+            }
+
+            // Weight Mode
+            if (scaleInfo[179] == '0')
+            {
+                lblWeightMode_2.Text = "English";
+            }
+            else if (scaleInfo[179] == '1')
+            {
+                lblWeightMode_2.Text = "Metric";
+            }
+            else if (scaleInfo[179] == ' ')
+            {
+                lblWeightMode_2.Text = "";
+            }
+
+            // Maximum Weight Allowed
+            byte[] maxWeight = new byte[4];
+            Array.ConstrainedCopy(scaleInfo, 180, maxWeight, 0, 4);
+            lblMaxWeight_2.Text = System.Text.Encoding.ASCII.GetString(maxWeight);
+
+            // Enforce Zero Return
+            if (scaleInfo[184] == '0')
+            {
+                lblOperationMode_2.Text = "US/Canadian";
+            }
+            else if (scaleInfo[184] == '1')
+            {
+                lblOperationMode_2.Text = "UK";
+            }
+            else if (scaleInfo[184] == '2')
+            {
+                lblOperationMode_2.Text = "Australian";
+            }
+            else if (scaleInfo[184] == '3')
+            {
+                lblOperationMode_2.Text = "Other";
+            }
+            else if (scaleInfo[184] == ' ')
+            {
+                lblOperationMode_2.Text = "";
+            }
+
+            // Enforce Zero Return
+            if (scaleInfo[185] == '0')
+            {
+                lblEnforceZero_2.Text = "No";
+            }
+            else if (scaleInfo[185] == '1')
+            {
+                lblEnforceZero_2.Text = "Yes";
+            }
+            else if (scaleInfo[185] == ' ')
+            {
+                lblEnforceZero_2.Text = "";
+            }
+
+            // Enforce Zero Return
+            if (scaleInfo[186] == '3')
+            {
+                lblWeightDigits_2.Text = "3";
+            }
+            else if (scaleInfo[186] == '5')
+            {
+                lblWeightDigits_2.Text = "5";
+            }
+            else if (scaleInfo[186] == ' ')
+            {
+                lblWeightDigits_2.Text = "";
+            }
+
+            SetStatus(response);
+        }
+
+        /// <summary>
+        /// Verify Zero Scale 
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void btnZeroScale_Click(object sender, EventArgs e)
+        {
+            IBMSurePOSAPI.IBM_SCALE_RESPONSE response = new IBMSurePOSAPI.IBM_SCALE_RESPONSE();
+            if (IBMSurePOSAPI.IBMSUREPOS_ZeroScale(m_Scale, ref response))
+            {
+                AddLabelTextBoxScaleLine("Zero Scale(true) Succeeded.");
+                //SetStatus(response);
+            }
+            else
+            {
+                AddLabelTextBoxScaleLine("Zero Scale(true) Failed/Timed out.");
+            }
+        }
+
+        /// <summary>
+        /// Verify Scale Status
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void btnScaleStatusRequest_Click(object sender, EventArgs e)
+        {
+            IBMSurePOSAPI.IBM_SCALE_RESPONSE response = new IBMSurePOSAPI.IBM_SCALE_RESPONSE();
+            if (IBMSurePOSAPI.IBMSUREPOS_ScaleStatusRequest(m_Scale, ref response))
+            {
+                AddLabelTextBoxScaleLine("Scale Status Request(true) Succeeded.");
+                ScaleSetStatus(response);
+            }
+            else
+            {
+                AddLabelTextBoxScaleLine("Scale Status Request(true) Failed/Timed out.");
+            }
+        }
+
+        /// <summary>
+        /// Scale Reset
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void btnScaleReset_Click(object sender, EventArgs e)
+        {
+            IBMSurePOSAPI.IBM_SCALE_RESPONSE response = new IBMSurePOSAPI.IBM_SCALE_RESPONSE();
+            if (IBMSurePOSAPI.IBMSUREPOS_Scale_Reset(m_Scale, ref response))
+            {
+                AddLabelTextBoxScaleLine("Scale Reset Succeeded.");
+                ScaleSetStatus(response);
+            }
+            else
+            {
+                AddLabelTextBoxScaleLine("Scale Reset Failed/Timed out.");
+            }
+        }
+
+        /// <summary>
+        /// Scale Test
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void btn_Scale_Test_Click(object sender, EventArgs e)
+        {
+            IBMSurePOSAPI.IBM_SCALE_RESPONSE response = new IBMSurePOSAPI.IBM_SCALE_RESPONSE();
+            if (IBMSurePOSAPI.IBMSUREPOS_Scale_Test(m_Scale, ref response))
+            {
+                AddLabelTextBoxScaleLine("Scale Test Succeeded.");
+                ScaleSetStatus(response);
+            }
+            else
+            {
+                AddLabelTextBoxScaleLine("Scale Test Failed/Timed out.");
+            }
+        }
+
+        /// <summary>
+        /// Change Scale Weight to English Format
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void btnEnglishWeightRequest_Click(object sender, EventArgs e)
+        {
+            WeightEnglish.Text = "";
+            IBMSurePOSAPI.IBM_SCALE_RESPONSE response = new IBMSurePOSAPI.IBM_SCALE_RESPONSE();
+            if (IBMSurePOSAPI.IBMSUREPOS_English_Weight(m_Scale, ref response))
+            {
+                System.Diagnostics.Debug.WriteLine("response stat0 : " + response.stat0);
+                System.Diagnostics.Debug.WriteLine("response stat1 : " + response.stat1);
+                System.Diagnostics.Debug.WriteLine("response stat2 : " + response.stat2);
+                string byteArrayAsString = BitConverter.ToString(response.rdata);
+                System.Diagnostics.Debug.WriteLine("response data : " + byteArrayAsString);
+                if (response.stat1 == 1)
+                {
+                    AddLabelTextBoxScaleLine("Scale not configured For English Mode");
+                }
+                else
+                {
+                    AddLabelTextBoxScaleLine("English Weight Request Succeeded.");
+                    ScaleSetStatus(response);
+                    ScaleEnglishWeightRead(response);
+                }
+            }
+            else
+            {
+                AddLabelTextBoxScaleLine("English Weight Request Failed/Timed out.");
+            }
+        }
+
+        /// <summary>
+        /// Change Scale Weight to Matric Format
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void btnMetricWeightRequest_Click(object sender, EventArgs e)
+        {
+            WeightMetric.Text = "";
+         
+            IBMSurePOSAPI.IBM_SCALE_RESPONSE response = new IBMSurePOSAPI.IBM_SCALE_RESPONSE();
+            if (IBMSurePOSAPI.IBMSUREPOS_Metric_Weight(m_Scale, ref response))
+            {
+                if (response.stat1 == 1 || response.stat1 == 3)
+                {
+                    AddLabelTextBoxScaleLine("Metric Weight Request Succeeded.");
+                    ScaleSetStatus(response);
+                    ScaleMetricWeightRead(response);
+                }
+                else
+                {
+                    AddLabelTextBoxScaleLine("Scale not configured for Metric Mode");
+                }
+            }
+            else
+            {
+                AddLabelTextBoxScaleLine("Metric Weight Request Failed/Timed out.");
+            }
+        }
+
+        /// <summary>
+        /// Enable extended for Scale
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void btnEES_Click(object sender, EventArgs e)
+        {
+            IBMSurePOSAPI.IBM_SCALE_RESPONSE response = new IBMSurePOSAPI.IBM_SCALE_RESPONSE();
+            if (IBMSurePOSAPI.IBMSUREPOS_Enable_Extended_Status(m_Scale, ref response))
+            {
+                AddLabelTextBoxScaleLine("Enable Extended (3-Byte) Status");
+                ScaleSetStatus(response);
+            }
+            else
+            {
+                AddLabelTextBoxScaleLine("Enable Extended (3-Byte) Status Failed/Timed out.");
+            }
+        }
+
+        /// <summary>
+        /// Disable Extended for Scale
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void btnDES_Click(object sender, EventArgs e)
+        {
+            IBMSurePOSAPI.IBM_SCALE_RESPONSE response = new IBMSurePOSAPI.IBM_SCALE_RESPONSE();
+            if (IBMSurePOSAPI.IBMSUREPOS_Disable_Extended_Status(m_Scale, ref response))
+            {
+                AddLabelTextBoxScaleLine("Disable Extended (3-Byte) Status");
+                ScaleSetStatus(response);
+            }
+            else
+            {
+                AddLabelTextBoxScaleLine("Disable Extended (3-Byte) Status Failed/Timed out.");
+            }
+        }
+
+        /// <summary>
+        /// Clear Remote Display in Scale
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void btnClearRemortDisplay_Click(object sender, EventArgs e)
+        {
+            IBMSurePOSAPI.IBM_SCALE_RESPONSE response = new IBMSurePOSAPI.IBM_SCALE_RESPONSE();
+            if (IBMSurePOSAPI.IBMSUREPOS_Clear_Remort_Display(m_Scale, ref response))
+            {
+                AddLabelTextBoxScaleLine("Clear Remort Display Succeeded.");
+                ScaleSetStatus(response);
+            }
+            else
+            {
+                AddLabelTextBoxScaleLine("Clear Remort Display Failed/Timed out.");
+            }
+        }
+
+        /// <summary>
+        /// Get the scale configuration
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void btnRemoteScaleConfig_Click(object sender, EventArgs e)
+        {   
+            IBMSurePOSAPI.IBMSurePOSScaleConfig config = new IBMSurePOSAPI.IBMSurePOSScaleConfig();
+            IBMSurePOSAPI.IBMSurePOSScaleResponse response = new IBMSurePOSAPI.IBMSurePOSScaleResponse();
+            IBMSurePOSAPI.IBM_SCALE_RESPONSE rsp = new IBMSurePOSAPI.IBM_SCALE_RESPONSE();
+            IBMSurePOSAPI.IBM_SCALE_CONFIG cfg = new IBMSurePOSAPI.IBM_SCALE_CONFIG();
+            
+            if (IBMSurePOSAPI.IBMSUREPOS_Report_Scale_Config(m_Scale, ref cfg, ref rsp))
+            // if (IBMSurePOSAPI.IBMSUREPOS_Report_Scale_Config(m_Scanner, ref cfg, ref rsp))
+            {
+                AddLabelTextBoxScaleLine("GetConfig() Succeeded");
+                ScaleSetStatus(rsp);
+                config.Config = cfg;
+
+                // cfg0
+                cmbOperationMode.SelectedIndex = config.Operation_Mode;
+                cbDisplayRequired.Checked = config.Display_Requirement;
+                cbCenterOfZero.Checked = config.Center_Of_Zero_With_LED;
+                cbEnglishWeightMode.Checked = config.Weight_Mode;
+                cbZeroReturn.Checked = config.Zero_Return;
+                cmbVibrationSense.SelectedIndex = config.Vibration_Sensitivity;
+                
+                // cfg1
+                cbFourDigitWeight.Checked = config.Weight_Degit;
+
+            }
+            else
+            {
+                AddLabelTextBoxScaleLine("btnRemoteScaleConfig() Failed/Timed out.");
+            }
+
+        }
+
+        /// <summary>
+        /// Set Scale Configuration
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void btnConfigScale_Click(object sender, EventArgs e)
+        {
+            IBMSurePOSAPI.IBMSurePOSScaleConfig config = new IBMSurePOSAPI.IBMSurePOSScaleConfig();
+            IBMSurePOSAPI.IBMSurePOSScaleResponse response = new IBMSurePOSAPI.IBMSurePOSScaleResponse();
+            IBMSurePOSAPI.IBM_SCALE_RESPONSE rsp = new IBMSurePOSAPI.IBM_SCALE_RESPONSE();
+            IBMSurePOSAPI.IBM_SCALE_CONFIG cfg;
+
+            // cfg0
+            config.Operation_Mode = (byte)cmbOperationMode.SelectedIndex;
+            config.Display_Requirement = cbDisplayRequired.Checked;
+            config.Center_Of_Zero_With_LED = cbCenterOfZero.Checked;
+            config.Weight_Mode = cbEnglishWeightMode.Checked;
+            config.Zero_Return = cbZeroReturn.Checked;
+            config.Vibration_Sensitivity = (byte)cmbVibrationSense.SelectedIndex;
+            
+            // cfg1
+            config.Weight_Degit = cbFourDigitWeight.Checked;
+            
+            cfg = config.Config;
+
+            if (IBMSurePOSAPI.IBMSUREPOS_SetScaleConfig(m_Scale, ref cfg, ref rsp))
+            {
+                string cfgresult = "";
+                response.ScaleResponse = rsp;
+
+                if (response.config_success)
+                {
+                    cfgresult = "Success";
+                }
+                else
+                {
+                    cfgresult = "Failed";
+                }
+                AddLabelTextBoxScaleLine("SetScaleConfig() Result: " + cfgresult);
+                ScaleSetStatus(rsp);
+                //btnGetConfig_Click(null, null);
+            }
+            else
+            {
+                AddLabelTextBoxScaleLine("SetConfig() Failed/Timed out.");
+            }
+        }
+
+        /// <summary>
+        /// Get Scanner Vendor SpecificManagement Information
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void btnSVManagementInfo_Click(object sender, EventArgs e)
+        {
+            Int32 size = 50 * 1024;
+            byte[] tempInfo = new byte[size];
+            byte[] managementInfo = new byte[size];
+            int dataCount = 0;
+            string appPath = System.IO.Path.GetDirectoryName(Application.ExecutablePath);
+            int count = 0;
+            int preCount = 0;
+            IBMSurePOSAPI.IBM_SCANNER_RESPONSE response = new IBMSurePOSAPI.IBM_SCANNER_RESPONSE();
+            do
+            {
+                if (IBMSurePOSAPI.IBMSUREPOS_GetScannerVendorSpecificManagementInfo(m_Scanner, ref response, tempInfo, ref dataCount))
+                {
+                    
+                    //tempInfo.CopyTo(managementInfo, count);    
+                    if (dataCount == 0 && response.length != 0)
+                    {
+                        dataCount = response.length-5;
+                        Array.ConstrainedCopy(response.rdata, 1, tempInfo, 0, dataCount);
+                    }
+                    Array.ConstrainedCopy(tempInfo, 0, managementInfo, count, dataCount);
+                    count = count + dataCount;
+                    string number = count.ToString();
+                    AddLabelTextBoxLine("GetScannerVendorSpecificManagementInfo() Succeeded." + number);
+
+                }
+                else
+                {
+                    AddLabelTextBoxLine("GetScannerVendorSpecificManagementInfo() Failed/Timed out.");
+                    return;
+
+                }
+                tempInfo = Enumerable.Repeat((byte)0x20, size).ToArray();
+            } while (response.rdata[0] != 0);
+
+
+            byte[] tempInfo1 = new byte[count];
+            Array.ConstrainedCopy(managementInfo, 0, tempInfo1, 0, count);
+
+            // load xml file
+            string outputFile1 = appPath + "\\temp.xml";
+
+            FileStream fs1 = new FileStream(outputFile1, FileMode.Create, FileAccess.ReadWrite);
+            BinaryWriter bw1 = new BinaryWriter(fs1, Encoding.Unicode);
+            bw1.Write(tempInfo1);
+            bw1.Close();
+            fs1.Close();
+
+            string outputFile = appPath + "\\OutputFile.xml";
+            //Get input.xml file
+            string[] inputTextLines = System.IO.File.ReadAllLines(appPath + "\\temp.xml");
+            //count no of devices
+            int deviceCount = 0;
+
+            //Create Output file
+            using (System.IO.StreamWriter outputXML = new System.IO.StreamWriter(appPath + "\\OutputFile.xml"))
+            {
+                //initiate datagridview with null values
+                attributeDataGrid.Rows.Clear();
+
+                //process line by line of input file
+                foreach (string line in inputTextLines)
+                {
+                    String startString = "<attrib_list";
+                    String endString = "</attrib_list";
+                    StringComparison comparison = StringComparison.InvariantCultureIgnoreCase;
+
+                    //Ignore the start attribute Line
+                    if (line.StartsWith(startString, comparison))
+                    {
+                        deviceCount++;
+                        Char charRange = '\"';
+                        int startIndex = line.IndexOf(charRange);
+                        int endIndex = line.LastIndexOf(charRange);
+                        int length = endIndex - startIndex;
+
+                        addingRow = attributeDataGrid.Rows.Add();
+                        attributeDataGrid.Rows[addingRow].Cells[0].Value = line.Substring(startIndex + 1, length - 1);
+                        outputXML.WriteLine(line);
+                    }
+                    else if (line.StartsWith(endString, comparison))
+                    {
+                        outputXML.WriteLine(line);
+                    }
+                    else
+                    {
+
+                        if (!string.IsNullOrEmpty(line) && AddXML(outputXML, line.Remove(line.Length - 1)))
+                        {
+                            attributeDataGrid.Rows[addingRow].Visible = false;
+                        }
+                    }
+                }
+            }
+
+            DeviceCount.Text = deviceCount.ToString();
+
+            AddLabelTextBoxLine("Please find the output xml file in " + outputFile + "Output XML Path");
+        }
+
+        /// <summary>
+        /// Get attribute details from XML file
+        /// </summary>
+        /// <param name="outputXML"></param>
+        /// <param name="line"></param>
+        /// <returns></returns>
+        private Boolean AddXML(System.IO.StreamWriter outputXML, String line)
+        {
+            
+            Char delimiter = ',';
+            String[] sublines = line.Split(delimiter);
+
+            //filter only values
+            if (sublines.Length >= 2)
+            {
+                addingRow = attributeDataGrid.Rows.Add();
+                //adding the starting tag
+                outputXML.WriteLine("<attribute>");
+
+                //adding content of a attribute
+                for (int caseSwitch = 0; caseSwitch < sublines.Length; caseSwitch++)
+                {
+                    if ((caseSwitch == 3))
+                    {
+                        sublines[3] = sublines[3].PadRight(Int32.Parse(sublines[2]), ' ');
+                    }
+                    if ((caseSwitch == 2) & (sublines.Length == 3))
+                    {
+                        caseSwitch = 3;
+                    }
+
+
+                    switch (caseSwitch)
+                    {
+                        case 0:
+                            outputXML.WriteLine("<id>" + sublines[0] + "</id>");
+                            attributeDataGrid.Rows[addingRow].Cells[1].Value = sublines[0];
+                            break;
+                        case 1:
+                            outputXML.WriteLine("<datatype>" + sublines[1] + "</datatype>");
+                            attributeDataGrid.Rows[addingRow].Cells[2].Value = sublines[1];
+                            break;
+                        case 2:
+                            outputXML.WriteLine("<data-len>" + sublines[2] + "</data-len>");
+                            break;
+                        case 3:
+                            if (sublines[(sublines.Length) - 1] == "T")
+                            {
+                                sublines[(sublines.Length) - 1] = "True";
+                            }
+                            if (sublines[(sublines.Length) - 1] == "F")
+                            {
+                                sublines[(sublines.Length) - 1] = "False";
+                            }
+                            outputXML.WriteLine("<value>" + sublines[(sublines.Length) - 1] + "</value>");
+                            attributeDataGrid.Rows[addingRow].Cells[3].Value = sublines[(sublines.Length) - 1];
+                            break;
+                    }
+                }
+                //adding the ending tag
+                outputXML.WriteLine("</attribute>");
+                return true;
+            }
+            else { 
+                //no adding xml
+                return false;
+            }
+
+        }
+
+        /// <summary>
+        /// Expand the Grid
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void attributeDataGrid_CellDoubleClick(object sender, DataGridViewCellEventArgs e)
+        {
+            String cell = (String)attributeDataGrid.Rows[e.RowIndex].Cells[0].Value;
+
+            if (cell != null &&  !(attributeDataGrid.Rows[e.RowIndex + 1].Visible))
+            {
+                for (int rows = e.RowIndex + 1; rows < addingRow; rows++)
+                {
+                    String attibuteList = (String)attributeDataGrid.Rows[rows].Cells[0].Value;
+
+                    if (attibuteList != null)
+                    {
+                        break;
+                    }
+                    attributeDataGrid.Rows[rows].Visible = true;
+                }
+            }else  if (cell != null && (attributeDataGrid.Rows[e.RowIndex + 1].Visible)){
+
+                for (int rows = e.RowIndex + 1; rows < addingRow; rows++)
+                {
+                    String attibuteList = (String)attributeDataGrid.Rows[rows].Cells[0].Value;
+
+                    if (attibuteList != null)
+                    {
+                        break;
+                    }
+                    attributeDataGrid.Rows[rows].Visible = false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Get Scale Vendor Specific Management Information
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void btnSVSManagementInfo_Click(object sender, EventArgs e)
+        {
+            byte[] scaleInfo = new byte[IBMSurePOSAPI.IBM_SCANNER_RESPONSE_DATA_LEN_SCALE_VMI_COMMAND];
+            IBMSurePOSAPI.IBM_SCANNER_RESPONSE response = new IBMSurePOSAPI.IBM_SCANNER_RESPONSE();
+            if (IBMSurePOSAPI.IBMSUREPOS_GetScaleVendorSpecificManagementInfo(m_Scanner, ref response, scaleInfo))
+            {
+                AddLabelTextBoxLine("GetScaleVendorSpecificManagementInfo() Succeeded.");
+            }
+            else
+            {
+                AddLabelTextBoxLine("GetScaleVendorSpecificManagementInfo() Failed/Timed out.");
+                return;
+            }
+
+            MessageBox.Show("This Command is not supported for target Scanner Model");
+        }
+
+        private void lblScannerStatus_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void tabPage5_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void groupBox1_Enter(object sender, EventArgs e)
+        {
+
+        }
+
+        private void tabPage1_Click(object sender, EventArgs e)
+        {
+
+        }
+        
+        private void tabPage8_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void txtLableScaleData_TextChanged(object sender, EventArgs e)
+        {
+
+        }
+
+        private void txtLabelData_TextChanged(object sender, EventArgs e)
+        {
+
+        }
+
+        /// <summary>
+        /// Timer for poll command (Scan)
+        /// </summary>
+        private void Timer_Tick(object sender, EventArgs e)
+        {
+            string str = "";
+            ManualCommand(ref str);
+            SendCommand(str);
+        }
+        /// <summary>
+        /// Timer for poll command (Scale)
+        /// </summary>
+        private void Scale_Timer_Tick(object sender,EventArgs e)
+        {
+            string str = "";
+            ManualCommandScale(ref str);
+            SendCommandScale(str);
+        }
+
+        /// <summary>
+        /// Send manual command, send/stop poll command (Scan)
+        /// </summary>
+        private void button5_Click(object sender, EventArgs e)
+        {
+            
+            if (checkBoxPollCommand.Checked)
+            {
+                if (commandSend.Text == "Send")
+                {
+                    commandSend.Text = "Stop";
+                    if ((int)numericUpDownSelectFre.Value != 0)
+                    {
+                        timer = new System.Windows.Forms.Timer();
+                        timer.Interval = (int)numericUpDownSelectFre.Value;
+                        timer.Tick += new EventHandler(Timer_Tick);
+                        timer.Start();
+                    }
+                    else
+                    {
+                        AddLabelTextBoxLine("Set the Frequency");
+                    }
+                }
+                else
+                {
+                    commandSend.Text = "Send";
+                    timer.Stop();
+                    AddLabelTextBoxLine("Stopped");
+                }
+            }
+            else
+            {
+                string str = "";
+                ManualCommand(ref str);
+                SendCommand(str);
+            }
+
+        }
+
+        /// <summary>
+        /// Discover button, list all the connected device (Scan)
+        /// </summary>
+        void Combox_fill()
+        {
+            try
+            {
+                int comboBoxIndex = 0;
+                comboBox1.Items.Clear();
+                comboBox1.Text = "";
+                EnumerateResult enumerateResult = IBMSurePOSAPI.IBMSUREPOS_EnumerateUsbDevices(zebraCheckBox.Checked ? 1 : 0);       
+
+                int[] vendorIdsList = new int[enumerateResult.vendorIdsListLength];
+                int[] productIdsList = new int[enumerateResult.productIdsListLength];
+                int[] usageList = new int[enumerateResult.usageListLength];
+
+                Array.Clear(vendorIdsList, 0, vendorIdsList.Length);
+                Array.Clear(usageList, 0, usageList.Length);
+                Array.Clear(productIdsList, 0, productIdsList.Length);
+
+                Marshal.Copy(enumerateResult.vendorIdsList, vendorIdsList, 0, enumerateResult.vendorIdsListLength);
+                Marshal.Copy(enumerateResult.productIdsList, productIdsList, 0, enumerateResult.productIdsListLength);
+                Marshal.Copy(enumerateResult.usageList, usageList, 0, enumerateResult.usageListLength);
+
+                IBMSurePOSAPI.IBMSUREPOS_FnWrapperRelease(enumerateResult.vendorIdsList);
+                IBMSurePOSAPI.IBMSUREPOS_FnWrapperRelease(enumerateResult.productIdsList);
+                IBMSurePOSAPI.IBMSUREPOS_FnWrapperRelease(enumerateResult.usageList);
+
+                for (int i = 0; i < enumerateResult.productIdsListLength; i++)
+                {
+                    if (vendorIdsList[i].ToString("x") == "5e0")
+                    {
+                        if (usageList[i].ToString("X") == "4B00")
+                        {
+                            comboBox1.Items.Insert(comboBoxIndex, "ZEBRA" + "-" + productIdsList[i].ToString("x") + "-" + "Hand Held");
+                        }
+                        else if (usageList[i].ToString("X") == "4A00")
+                        {
+                            comboBox1.Items.Insert(comboBoxIndex, "ZEBRA" + "-" + productIdsList[i].ToString("x") + "-" + "Table Top");
+                        }
+                        else if (usageList[i].ToString("X") == "A000")
+                        {
+                            comboBox1.Items.Insert(comboBoxIndex, "ZEBRA" + "-" + productIdsList[i].ToString("x") + "-" + "FW Update");
+                        }
+                        else if (usageList[i].ToString("X") == "6E00")
+                        {
+                            comboBox1.Items.Insert(comboBoxIndex, "ZEBRA" + "-" + productIdsList[i].ToString("x") + "-" + "Scale");
+                            AddLabelTextBoxLine("Scale");
+                        }
+                        else
+                        {
+                            comboBox1.Items.Insert(comboBoxIndex, "ZEBRA" + "-" + productIdsList[i].ToString("x") + "-" + "Unknown");
+                        }
+                        comboBoxIndex++;
+
+                    }
+                    if (vendorIdsList[i].ToString("x") == "80c")
+                    {
+                        if (usageList[i].ToString("X") == "4B00")
+                        {
+                            comboBox1.Items.Insert(comboBoxIndex, "DATALOGIC" + "-" + productIdsList[i].ToString("x") + "-" + "Hand Held");
+                        }
+                        if (usageList[i].ToString("X") == "4A00")
+                        {
+                            comboBox1.Items.Insert(comboBoxIndex, "DATALOGIC" + "-" + productIdsList[i].ToString("x") + "-" + "Table Top");
+                        }
+                        if (usageList[i].ToString("X") == "A000")
+                        {
+                            comboBox1.Items.Insert(comboBoxIndex, "DATALOGIC" + "-" + productIdsList[i].ToString("x") + "-" + "FW Update");
+                        }
+                        else if (usageList[i].ToString("X") == "6E00")
+                        {
+                            comboBox1.Items.Insert(comboBoxIndex, "DATALOGIC" + "-" + productIdsList[i].ToString("x") + "-" + "Scale");
+                        }
+                        else
+                        {
+                            comboBox1.Items.Insert(comboBoxIndex, "DATALOGIC" + "-" + productIdsList[i].ToString("x") + "-" + "Unknown");
+                        }
+                        comboBoxIndex++;
+                    }
+                    if (vendorIdsList[i].ToString("x") == "c2e")
+                    {
+                        if (usageList[i].ToString("X") == "4B00")
+                        {
+                            comboBox1.Items.Insert(comboBoxIndex, "HONEYWELL" + "-" + productIdsList[i].ToString("x") + "-" + "Hand Held");
+                        }
+                        else if (usageList[i].ToString("X") == "4A00")
+                        {
+                            comboBox1.Items.Insert(comboBoxIndex, "HONEYWELL" + "-" + productIdsList[i].ToString("x") + "-" + "Table Top");
+                        }
+                        else if (usageList[i].ToString("X") == "A000")
+                        {
+                            comboBox1.Items.Insert(comboBoxIndex, "HONEYWELL" + "-" + productIdsList[i].ToString("x") + "-" + "FW Update");
+                        }
+                        else if (usageList[i].ToString("X") == "6E00")
+                        {
+                            comboBox1.Items.Insert(comboBoxIndex, "HONEYWELL" + "-" + productIdsList[i].ToString("x") + "-" + "Scale");
+                        }
+                        else
+                        {
+                            comboBox1.Items.Insert(comboBoxIndex, "HONEYWELL" + "-" + productIdsList[i].ToString("x") + "-" + "Unknown");
+                        }
+                        comboBoxIndex++;
+
+                    }
+                    if (vendorIdsList[i].ToString("x") == "404")
+                    {
+                        if (usageList[i].ToString("X") == "4B00")
+                        {
+                            comboBox1.Items.Insert(comboBoxIndex, "NCR" + "-" + productIdsList[i].ToString("x") + "-" + "Hand Held");
+                        }
+                        if (usageList[i].ToString("X") == "4A00")
+                        {
+                            comboBox1.Items.Insert(comboBoxIndex, "NCR" + "-" + productIdsList[i].ToString("x") + "-" + "Table Top");
+                        }
+                        if (usageList[i].ToString("X") == "A000")
+                        {
+                            comboBox1.Items.Insert(comboBoxIndex, "NCR" + "-" + productIdsList[i].ToString("x") + "-" + "FW Update");
+                        }
+                        else if (usageList[i].ToString("X") == "6E00")
+                        {
+                            comboBox1.Items.Insert(comboBoxIndex, "NCR" + "-" + productIdsList[i].ToString("x") + "-" + "Scale");
+                        }
+                        else
+                        {
+                            comboBox1.Items.Insert(comboBoxIndex, "NCR" + "-" + productIdsList[i].ToString("x") + "-" + "Unknown");
+                        }
+                        comboBoxIndex++;
+
+                    }
+                }
+                comboBox1.SelectedIndex = 0;
+
+                AddLabelTextBoxLine("Scanned");
+            }
+            catch
+            {
+                comboBox1.Items.Clear();
+                comboBox1.Text = "";
+                AddLabelTextBoxLine("No device found");
+            }
+        }
+
+        void Combox_fillScale()
+        {
+            try
+            {
+                int comboBoxIndexScale = 0;
+                btnScaleOpen.Enabled = true;
+                comboBox2.Items.Clear();
+                comboBox2.Text = "";
+                EnumerateResultScale enumerateResultScale = IBMSurePOSAPI.IBMSUREPOS_EnumerateUsbScaleDevices(checkBox2.Checked ? 1 : 0);
+
+                IBMSurePOSAPI.IBMSUREPOS_EnumerateUsbScaleDevices(checkBox2.Checked ? 1 : 0);
+
+                int[] vendorIdsListScale = new int[enumerateResultScale.vendorIdsListLengthScale];
+                int[] productIdsListScale = new int[enumerateResultScale.productIdsListLengthScale];
+                int[] usageListScale = new int[enumerateResultScale.usageListLengthScale];
+
+                Array.Clear(vendorIdsListScale, 0, vendorIdsListScale.Length);
+                Array.Clear(usageListScale, 0, usageListScale.Length);
+                Array.Clear(productIdsListScale, 0, productIdsListScale.Length);
+
+                Marshal.Copy(enumerateResultScale.vendorIdsListScale, vendorIdsListScale, 0, enumerateResultScale.vendorIdsListLengthScale);
+                Marshal.Copy(enumerateResultScale.productIdsListScale, productIdsListScale, 0, enumerateResultScale.productIdsListLengthScale);
+                Marshal.Copy(enumerateResultScale.usageListScale, usageListScale, 0, enumerateResultScale.usageListLengthScale);
+
+                IBMSurePOSAPI.IBMSUREPOS_FnWrapperRelease(enumerateResultScale.vendorIdsListScale);
+                IBMSurePOSAPI.IBMSUREPOS_FnWrapperRelease(enumerateResultScale.productIdsListScale);
+                IBMSurePOSAPI.IBMSUREPOS_FnWrapperRelease(enumerateResultScale.usageListScale);
+
+                for (int i = 0; i < enumerateResultScale.productIdsListLengthScale; i++)
+                {
+                    if (vendorIdsListScale[i].ToString("x") == "5e0")
+                    {
+
+                        if (usageListScale[i].ToString("X") == "6E00")
+                        {
+                            comboBox2.Items.Insert(comboBoxIndexScale, "ZEBRA" + "-" + productIdsListScale[i].ToString("x") + "-" + "Scale");
+                        }
+                        else
+                        {
+                            comboBox1.Items.Insert(comboBoxIndexScale, "ZEBRA" + "-" + productIdsListScale[i].ToString("x") + "-" + "Unknown");
+                        }
+                        comboBoxIndexScale++;
+
+                    }
+                    if (vendorIdsListScale[i].ToString("x") == "80c")
+                    {
+                        if (usageListScale[i].ToString("X") == "6E00")
+                        {
+                            comboBox2.Items.Insert(comboBoxIndexScale, "DATALOGIC" + "-" + productIdsListScale[i].ToString("x") + "-" + "Scale");
+                        }
+                        else
+                        {
+                            comboBox2.Items.Insert(comboBoxIndexScale, "DATALOGIC" + "-" + productIdsListScale[i].ToString("x") + "-" + "Unknown");
+                        }
+                        comboBoxIndexScale++;
+                    }
+                    if (vendorIdsListScale[i].ToString("x") == "c2e")
+                    {
+                        if (usageListScale[i].ToString("X") == "6E00")
+                        {
+                            comboBox2.Items.Insert(comboBoxIndexScale, "HONEYWELL" + "-" + productIdsListScale[i].ToString("x") + "-" + "Scale");
+                        }
+                        else
+                        {
+                            comboBox2.Items.Insert(comboBoxIndexScale, "HONEYWELL" + "-" + productIdsListScale[i].ToString("x") + "-" + "Unknown");
+                        }
+                        comboBoxIndexScale++;
+
+                    }
+                    if (vendorIdsListScale[i].ToString("x") == "404")
+                    {
+                        if (usageListScale[i].ToString("X") == "6E00")
+                        {
+                            comboBox2.Items.Insert(comboBoxIndexScale, "NCR" + "-" + productIdsListScale[i].ToString("x") + "-" + "Scale");
+                        }
+                        else
+                        {
+                            comboBox2.Items.Insert(comboBoxIndexScale, "NCR" + "-" + productIdsListScale[i].ToString("x") + "-" + "Unknown");
+                        }
+                        comboBoxIndexScale++;
+
+                    }
+                }
+                comboBox2.SelectedIndex = 0;
+
+                AddLabelTextBoxScaleLine("Device found");
+            }
+            catch
+            {
+                comboBox2.Items.Clear();
+                comboBox2.Text = "";
+                AddLabelTextBoxScaleLine("No device found");
+            }
+        }
+
+        private void button5_Click_1(object sender, EventArgs e)
+        {
+            Combox_fill();
+        }
+
+        private void comboBox1_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            /*if (comboBox1.SelectedItem != null)
+            {
+                
+                ScannerClose();
+
+                ScannerOpen();
+                AddLabelTextBoxLine(comboBox1.SelectedItem.ToString());
+            }*/
+             
+        }
+
+        private void button6_Click(object sender, EventArgs e)
+        {
+            
+        }
+
+        /// <summary>
+        /// Discover button, list all the connected device 
+        /// </summary>
+        private void btnOpen_Click(object sender, EventArgs e)
+        {
+            if (comboBox1.SelectedItem == null)
+            {
+                AddLabelTextBoxLine("No device Selected.");
+            }
+            else if (btnOpen.Text == "Connect")
+                {
+
+                    commandSend.Enabled = true;
+                    button6.Enabled = true;
+                    rbtDisplayParsedData.Enabled = true;
+                    rbtDisplayRawData.Enabled = true;
+                    numericUpDownSelectFre.Enabled = true;
+                    checkBoxPollCommand.Enabled = true;
+                    btnFindScanner.Enabled = false;
+                    btnOpen.Text = "Disconnect";
+                    ScannerOpen();
+                    AddLabelTextBoxLine(comboBox1.SelectedItem.ToString() + " Enabled!");
+
+                }
+            else  {
+
+                    ScannerClose();
+                    btnFindScanner.Enabled = true;
+                    AddLabelTextBoxLine(comboBox1.SelectedItem.ToString() + " Disconnected!");
+                    btnOpen.Text = "Connect";
+                    comboBox1.SelectedIndex = 0;
+                    RestAllData();
+                    ScanerRemove();
+                    Combox_fill();
+            }           
+        }
+
+        private void checkBox1_CheckedChanged(object sender, EventArgs e)
+        {
+            
+        }
+
+        private void groupBox7_Enter(object sender, EventArgs e)
+        {
+
+        }
+
+        private void dataGridView2_CellContentClick(object sender, DataGridViewCellEventArgs e)
+        {
+
+        }
+
+        /// <summary>
+        /// Radio button, to display raw data (Scan)
+        /// </summary>
+        private void rbtDisplayRawData_CheckedChanged(object sender, EventArgs e)
+        {
+            dataGridView3.DataSource = table1;
+        }
+
+        /// <summary>
+        /// Radio button, to display parsed data (Scan)
+        /// </summary>
+        private void rbtDisplayParsedData_CheckedChanged(object sender, EventArgs e)
+        {
+            dataGridView3.DataSource = table2;
+        }
+
+        /// <summary>
+        /// Save data to log file button (scan)
+        /// </summary>
+        private void button6_Click_2(object sender, EventArgs e)
+        {
+            string cellValue = string.Empty;
+            if (dataGridView3.CurrentRow != null)
+            {
+                if (rbtDisplayRawData.Checked)
+                {
+                    cellValue = dataGridView3.CurrentRow.Cells["Source"].Value.ToString();
+                }
+                else if (rbtDisplayParsedData.Checked)
+                {
+                    cellValue = dataGridView3.CurrentRow.Cells["Source"].Value.ToString();
+                }
+                foreach (DataRow row in table1.Rows)
+                {
+                    string devicenum = row["Device"].ToString();
+                    string rDataLog = row["Raw Data"].ToString();
+                    string dType = row["Source"].ToString();
+
+                    if (cellValue == dType)
+                    {
+                        IBMSurePOSAPI.IBMSUREPOS_DataSave("[>>] Device:" + lblSerialNumber.Text + ", Raw Data: " + rDataLog);
+                    }
+                    else
+                    {
+                        IBMSurePOSAPI.IBMSUREPOS_DataSave("[<<] Device:" + lblSerialNumber.Text + ", Raw Data: " + rDataLog);
+                    }
+                }
+                // Create an instance of FolderBrowserDialog
+                FolderBrowserDialog folderBrowserDialog = new FolderBrowserDialog();
+
+                // Show the dialog and get the result
+                DialogResult result = folderBrowserDialog.ShowDialog();
+
+                // Check if the user clicked OK
+                if (result == DialogResult.OK)
+                {
+                    // Get the selected folder path
+                    string selectedFolderPath = folderBrowserDialog.SelectedPath;
+                    // Create a unique log file name with a timestamp
+                    string logFileName = $"log_{DateTime.Now:yyyyMMddHHmmss}.txt";
+                    string logFilePath = Path.Combine(selectedFolderPath, logFileName);
+
+                    using (StreamWriter logWriter = new StreamWriter(logFilePath))
+                    {
+                        logWriter.WriteLine("Log Entries:");
+
+                        foreach (DataRow row in table1.Rows)
+                        {
+                            string time = row["Time"].ToString();
+                            string devicenum = row["Device"].ToString();
+                            string rDataLog = row["Raw Data"].ToString();
+                            string dType = row["Source"].ToString();
+
+                            // Log the data
+                            logWriter.WriteLine($"Time: {time}, Device: {devicenum}, RawData: {rDataLog}, Source: {dType}");
+                        }
+                    }
+                }
+                else
+                {
+                    AddLabelTextBoxLine("canceled the folder selection.");
+                }
+                AddLabelTextBoxLine("Saved!");
+            }
+            
+        }
+
+        /// <summary>
+        /// save log file for scale
+        /// </summary>
+        private void button12_Click(object sender, EventArgs e)
+        {
+            string cellValue = string.Empty;
+            if (dataGridView5.CurrentRow != null)
+            {
+                if (rbtnScaleRawData.Checked)
+                {
+                    cellValue = dataGridView5.CurrentRow.Cells["Source"].Value.ToString();
+                }
+                else if (rbtnDisplayParsedData.Checked)
+                {
+                    cellValue = dataGridView5.CurrentRow.Cells["Source"].Value.ToString();
+                }
+                foreach (DataRow row in table4.Rows)
+                {
+                    //string rnum = row["Time"].ToString();
+                    string devicenum = row["Device"].ToString();
+                    string rDataLog = row["Raw Data"].ToString();
+                    string dType = row["Source"].ToString();
+
+                    if (cellValue == dType)
+                    {
+                        IBMSurePOSAPI.IBMSUREPOS_DataScaleSave("[>>] Device S/N:" + lblScaleSerialNumber.Text + ", Raw Data: " + rDataLog);
+                    }
+                    else
+                    {
+                        IBMSurePOSAPI.IBMSUREPOS_DataScaleSave("[<<] Device S/N:" + lblScaleSerialNumber.Text + ", Raw Data: " + rDataLog);
+                    }
+                }
+                // Create an instance of FolderBrowserDialog
+                FolderBrowserDialog folderBrowserDialogScale = new FolderBrowserDialog();
+
+                // Show the dialog and get the result
+                DialogResult resultScale = folderBrowserDialogScale.ShowDialog();
+
+                // Check if the user clicked OK
+                if (resultScale == DialogResult.OK)
+                {
+                    // Get the selected folder path
+                    string selectedFolderPathScale = folderBrowserDialogScale.SelectedPath;
+                    // Create a unique log file name with a timestamp
+                    string logFileNameScale = $"log_{DateTime.Now:yyyyMMddHHmmss}.txt";
+                    string logFilePathScale = Path.Combine(selectedFolderPathScale, logFileNameScale);
+
+                    using (StreamWriter logWriter = new StreamWriter(logFilePathScale))
+                    {
+                        logWriter.WriteLine("Log Entries:");
+
+                        foreach (DataRow row in table4.Rows)
+                        {
+                            string time = row["Time"].ToString();
+                            string devicenum = row["Device"].ToString();
+                            string rDataLog = row["Raw Data"].ToString();
+                            string dType = row["Source"].ToString();
+
+                            // Log the data
+                            logWriter.WriteLine($"Time: {time}, Device: {devicenum}, RawData: {rDataLog}, Source: {dType}");
+                        }
+                    }
+                }
+                else
+                {
+                    AddLabelTextBoxLine("canceled the folder selection.");
+                }
+                AddLabelTextBoxScaleLine("Saved!");
+            }
+        }
+
+        private void tabPage10_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        /// <summary>
+        /// firmware update button (scan)
+        /// </summary>
+        private void btn_fwUpdate_Click(object sender, EventArgs e)
+        {
+            /*btn_fwUpdate.Update();*/
+            btn_fwUpdate.Enabled = false;
+            btn_fwUpdate.Update();
+            bool result = false;
+            string sourceFile = @textBrowseFile.Text;
+            string destFile = Path.Combine(Application.StartupPath, Path.GetFileName(sourceFile));
+            File.Copy(sourceFile, destFile, true);
+            String ConfigFilepath = System.AppDomain.CurrentDomain.BaseDirectory + "\\adxusbif.dat";
+            lblFilePath.Text = Path.GetFileName(destFile);
+
+            string vid = lblVID.Text.PadLeft(4, '0');
+            string pid = lblPID.Text.PadLeft(4, '0');
+            using (StreamWriter writer = new StreamWriter(ConfigFilepath, false))
+            {
+                string data = vid + " " + pid+ " " + txtECLevel.Text+" "+ Path.GetFileName(destFile);
+                writer.WriteLine(data);
+            }
+            String filenamefromADXUSBIF = "";
+
+            result = CheckFWUpdateRequired(ConfigFilepath, m_wScannerPID, m_wScannerEClevel, ref filenamefromADXUSBIF);
+            datFile = System.AppDomain.CurrentDomain.BaseDirectory + "\\" + filenamefromADXUSBIF;
+            if (result == true)
+            {
+                backgroundWorker3.RunWorkerAsync();
+                AddLabelTextBoxLine("Firmware Update Required");
+                /* AddLabelTextBoxLine(System.Environment.NewLine);*/
+                progressBar1.Value = 70;
+                progressBar1.Style = ProgressBarStyle.Marquee;
+               
+                AddLabelTextBoxLine("Please wait");
+                progressBar1.Update();
+            }
+            else
+            {
+                AddLabelTextBoxLine("Firmware Update Not Required");
+                /*AddLabelTextBoxLine(System.Environment.NewLine);*/
+                btn_fwUpdate.Enabled = true;
+                btn_fwUpdate.Update();
+                if (File.Exists(lblFilePath.Text))
+                {
+                    File.Delete(lblFilePath.Text);
+                    AddLabelTextBoxLine("File deleted successfully.");
+                }
+                else
+                {
+
+                }
+            }
+        }
+
+        struct ADXUSBIF_ENTRY
+        {
+            public int vendor_id;
+            public int product_id;
+            public int eclevel;
+            public string fwfilename;
+        };
+
+        /// <summary>
+        /// Check whether firmware update is required
+        /// </summary>
+        /// <param name="filePath"></param>
+        /// <param name="ScannerPID"></param>
+        /// <param name="ECLevel"></param>
+        /// <param name="fwLocation"></param>
+        /// <returns></returns>
+        private bool CheckFWUpdateRequired(String filePath, ushort ScannerPID, ushort ECLevel, ref String fwLocation)
+        {
+            int counter = 0;
+            string line;
+            ADXUSBIF_ENTRY adxusbifFileEntry;
+
+            // Read the file and display it line by line.
+            System.IO.StreamReader file = new System.IO.StreamReader(filePath);
+            while ((line = file.ReadLine()) != null)
+            {
+                if ((line[0] == '*') || (line[0] == '='))
+                {
+                    // return false;
+                }
+                else
+                {
+                    try
+                    {
+                        var array = line.Split(new[] { " " }, StringSplitOptions.RemoveEmptyEntries);
+                        adxusbifFileEntry.product_id = int.Parse(array[1], System.Globalization.NumberStyles.HexNumber);
+                        adxusbifFileEntry.eclevel = int.Parse(array[2], System.Globalization.NumberStyles.HexNumber);
+                        adxusbifFileEntry.fwfilename = array[3];
+
+                        if (ScannerPID == adxusbifFileEntry.product_id)
+                        {
+                            if ((ECLevel < adxusbifFileEntry.eclevel) || (adxusbifFileEntry.eclevel == 0x9999))
+                            {
+                                fwLocation = adxusbifFileEntry.fwfilename;
+                                return true;
+                            }
+                            else
+                                return false;
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        //Console.WriteLine("An error occurred: '{0}'", e);
+                    }
+                }
+                counter++;
+            }
+
+            file.Close();
+            return false;
+        }
+
+        /// <summary>
+        /// progresss bar (scan)
+        /// </summary>
+        private void backgroundWorker3_RunWorkerCompleted(object sender, RunWorkerCompletedEventArgs e)
+        {
+            progressBar1.Value = 0;
+            progressBar1.Style = ProgressBarStyle.Blocks;
+            progressBar1.Update();
+
+            if (fwupdateSuccess)
+            {
+                AddLabelTextBoxLine("Firmware Update Success");
+                /*AddLabelTextBoxLine(System.Environment.NewLine);*/
+                if (File.Exists(lblFilePath.Text))
+                {
+                    File.Delete(lblFilePath.Text);
+                    //AddLabelTextBoxLine("File deleted successfully.");
+                }
+                else
+                {
+                    
+                }
+
+            }
+            else
+            {
+                AddLabelTextBoxLine("Firmware Update Failed");
+                /*AddLabelTextBoxLine(System.Environment.NewLine);*/
+                if (File.Exists(lblFilePath.Text))
+                {
+                    File.Delete(lblFilePath.Text);
+                    //AddLabelTextBoxLine("File deleted successfully.");
+                }
+               
+            }
+
+            btn_fwUpdate.Enabled = true;
+            btn_fwUpdate.Update();
+        }
+        private void backgroundWorker1_DoWork(object sender, DoWorkEventArgs e)
+        {
+            
+        }
+
+        private void progressBar1_Click(object sender, EventArgs e)
+        {
+
+        }
+
+
+
+        private void lblPID_Click(object sender, EventArgs e)
+        {
+
+        }
+        /// <summary>
+        /// brows the file directory (scan)
+        /// </summary>
+        private void button7_Click(object sender, EventArgs e)
+        {
+            OpenFileDialog openFileDialog1 = new OpenFileDialog
+            {
+                InitialDirectory = @"C:\",
+                Title = "Browse Text Files",
+
+                CheckFileExists = true,
+                CheckPathExists = true,
+
+                DefaultExt = "txt",
+                Filter = "dat files (*.dat)|*.dat",
+                FilterIndex = 2,
+                RestoreDirectory = true,
+
+                ReadOnlyChecked = true,
+                ShowReadOnly = true
+            };
+            if (openFileDialog1.ShowDialog() == DialogResult.OK)
+            {
+               
+                textBrowseFile.Text = openFileDialog1.FileName;
+                AddLabelTextBoxLine(textBrowseFile.SelectedText);
+            }
+            
+        }
+
+        private void circularProgressBar1_Click(object sender, EventArgs e)
+        {
+
+        }
+        /// <summary>
+        /// run the firmware update (scan)
+        /// </summary>
+        private void backgroundWorker3_DoWork(object sender, DoWorkEventArgs e)
+        {
+            
+            fwupdateSuccess = IBMSurePOSAPI.IBMNativeFW_UpdateFW(m_Scanner, datFile,currentRec,totalRec);
+            
+            backgroundWorker3.CancelAsync();
+        }
+
+        private void dataGridView2_CellContentClick_1(object sender, DataGridViewCellEventArgs e)
+        {
+            
+        }
+
+        /// <summary>
+        /// Save new commands (scan)
+        /// </summary>
+        private void btnSaveCommand_Click(object sender, EventArgs e)
+        {            
+            /*            string newCommand = txtNewCommand.Text;
+            */
+            string newCommand = "0x" + textBox12.Text + ",0x" + textBox13.Text + ",0x" + textBox15.Text + ",0x" + textBox14.Text + ",0x" + textBox19.Text + ",0x" + textBox18.Text
+                + ",0x" + textBox17.Text + ",0x" + textBox16.Text + ",0x" + textBox22.Text + ",0x" + textBox21.Text + ",0x" + textBox20.Text;
+            string descriptionStr = txtDescription.Text;
+            var item = new Dictionary<string, string>
+            {
+                {"Command", newCommand},
+                {"Description", descriptionStr}
+            };
+
+            dataDict = null;
+
+            if (File.Exists("data.json"))
+            {
+                string json = File.ReadAllText("data.json");
+                dataDict = JsonConvert.DeserializeObject<Dictionary<int, Dictionary<string, string>>>(json);
+                nextId = dataDict.Select(d => d.Key).DefaultIfEmpty(0).Max() + 1;
+            }
+            else
+            {
+                dataDict = new Dictionary<int, Dictionary<string, string>>();
+            }
+            
+            if(dataDict.Any(d => d.Value.ContainsKey("Command") && d.Value["Command"] == newCommand))
+            {
+                AddLabelTextBoxLine("This command already exists!");
+                return;
+            }
+            dataDict.Add(nextId, item);
+            nextId++;
+            // Serialize the data to JSON and write it to the file
+            string newJson = JsonConvert.SerializeObject(dataDict);
+            File.WriteAllText("data.json", newJson);
+            AddLabelTextBoxLine("Saved.");
+            dataGridView2.DataSource = null;
+
+            dataGridView2.Columns.Clear();
+            dataGridView2.Rows.Clear();
+            SaveCommandTable();            
+        }
+
+        /// <summary>
+        /// clear the dataGridView (scan)
+        /// </summary>
+        private void button8_Click_1(object sender, EventArgs e)
+        {
+            table1.Clear();
+            table2.Clear();
+        }
+
+        private void button3_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void textBox1_TextChanged(object sender, EventArgs e)
+        {
+
+        }
+
+        private void btnSelectSaveComm_Click(object sender, EventArgs e)
+        {
+            
+        }
+
+
+        /// <summary>
+        /// Open about window
+        /// </summary>
+        private void linkLabel1_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
+        {
+            helpForm formHelp = new helpForm();
+            formHelp.ShowDialog();
+        }
+
+        /// <summary>
+        /// fill the text box according to selected command (Scan)
+        /// </summary>
+        private void selectSaveComm_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            try
+            {
+                string json = File.ReadAllText("data.json");
+                Dictionary<int, Dictionary<string, string>> dataDict = JsonConvert.DeserializeObject<Dictionary<int, Dictionary<string, string>>>(json);
+
+                string descriptionToSearch = selectSaveComm.SelectedItem.ToString();
+                string commandValue = dataDict.FirstOrDefault(x => x.Value.ContainsKey("Description") && x.Value["Description"] == descriptionToSearch).Value?["Command"];
+                
+                string input = commandValue;
+                string[] hexValues = input.Split(',');
+
+                List<string> bytes = new List<string>();
+                foreach (string hexValue in hexValues)
+                {
+                    string byteValue = hexValue.Replace("0x", "");
+                    bytes.Add(byteValue);
+                }
+
+                textBox1.Text = bytes[0];
+                textBox2.Text = bytes[1];
+                textBox3.Text = bytes[2];
+                textBox4.Text = bytes[3];
+                textBox5.Text = bytes[4];
+                textBox6.Text = bytes[5];
+                textBox7.Text = bytes[6];
+                textBox8.Text = bytes[7];
+                textBox9.Text = bytes[8];
+                textBox10.Text = bytes[9];
+                textBox11.Text = bytes[10];
+
+            }
+            catch (Exception ex)
+            {
+                AddLabelTextBoxLine("Error: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// fill the text box according to selected command (Scale)
+        /// </summary>
+        private void selectSaveCommScale_SelectedIndexChanged(object sender, EventArgs e)
+        {
+
+            try
+            {
+
+                string jsonScale = File.ReadAllText("dataScale.json");
+                Dictionary<int, Dictionary<string, string>> dataDictScale = JsonConvert.DeserializeObject<Dictionary<int, Dictionary<string, string>>>(jsonScale);
+
+                string descriptionToSearch = selectSaveCommScale.SelectedItem.ToString();
+                string commandValue = dataDictScale.FirstOrDefault(x => x.Value.ContainsKey("Description") && x.Value["Description"] == descriptionToSearch).Value?["Command"];
+
+                string input = commandValue;
+                string[] hexValues = input.Split(',');
+
+                List<string> bytes = new List<string>();
+                foreach (string hexValue in hexValues)
+                {
+                    string byteValue = hexValue.Replace("0x", "");
+                    bytes.Add(byteValue);
+                }
+
+                txtboxScale_1.Text = bytes[0];
+                txtboxScale_2.Text = bytes[1];
+                txtboxScale_3.Text = bytes[2];
+                txtboxScale_4.Text = bytes[3];
+                txtboxScale_5.Text = bytes[4];
+               
+            }
+            catch (Exception ex)
+            {
+                AddLabelTextBoxScaleLine("Error: " + ex.Message);
+            }
+        }
+        /// <summary>
+        /// radio button for display row data (Scale)
+        /// </summary>
+        private void rbtDisplayRawData_CheckedChanged_1(object sender, EventArgs e)
+        {
+            dataGridView3.DataSource = table1;
+        }
+
+        /// <summary>
+        /// radio button for display parse data (Scale)
+        /// </summary>
+        private void rbtDisplayParsedData_CheckedChanged_1(object sender, EventArgs e)
+        {
+            dataGridView3.DataSource = table2;
+        }
+        
+        /// <summary>
+        /// discover connected scale devices 
+        /// </summary>
+        private void btnFindScale_Click(object sender, EventArgs e)
+        {
+            Combox_fillScale();
+        }
+        void connectScale()
+        {
+            if(comboBox2.Items.Count == 1)
+            {
+                btnScaleOpen.Text = "Disconnect";
+                ScaleOpen();
+                AddLabelTextBoxScaleLine(comboBox2.SelectedItem.ToString() + " Enabled!");
+            }
+        }
+        void ConnectScanner()
+        {
+            if(comboBox1.Items.Count == 1)
+            {
+                commandSend.Enabled = true;
+                button6.Enabled = true;
+                rbtDisplayParsedData.Enabled = true;
+                rbtDisplayRawData.Enabled = true;
+                numericUpDownSelectFre.Enabled = true;
+                checkBoxPollCommand.Enabled = true;
+                btnOpen.Text = "Disconnect";
+                ScannerOpen();
+                AddLabelTextBoxLine(comboBox1.SelectedItem.ToString() + " Enabled!");
+            }          
+        }
+        /// <summary>
+        /// Connect with selected scale
+        /// </summary>
+        private void btnScaleOpen_Click(object sender, EventArgs e)
+        {
+            if (btnScaleOpen.Text == "Connect")
+            {                              
+                if (comboBox2.SelectedItem == null)
+                {
+                    AddLabelTextBoxScaleLine("No device selected");
+                }
+                else
+                {
+                    btnScaleOpen.Text = "Disconnect";
+                    ScaleOpen();                  
+                    AddLabelTextBoxScaleLine(comboBox2.SelectedItem.ToString() + " Enabled!");
+                }
+            }
+            else
+            {               
+                ScaleClose();
+                AddLabelTextBoxScaleLine(comboBox2.SelectedItem.ToString() + " Disconnected!");
+                btnScaleOpen.Text = "Connect";
+                table4.Clear();
+                table5.Clear();
+                ScaleRemove();
+                lblScaleManufacturer.ResetText();
+                lblScaleProduct.ResetText();
+                lblScaleVID.ResetText();
+                lblScalePID.ResetText();
+                lblScaleSerialNumber.ResetText();
+                Combox_fillScale();
+            }
+        }
+
+        /// <summary>
+        /// Send manual scale commands
+        /// </summary>
+        private void commandSendScale_Click(object sender, EventArgs e)
+        {
+            if (checkBoxPollCommandScale.Checked)
+            {
+                if (commandSendScale.Text == "Send")
+                {
+                    commandSendScale.Text = "Stop";
+                    if ((int)numericUpDownSelectFreScale.Value != 0)
+                    {
+                        timerScale = new System.Windows.Forms.Timer();
+                        timerScale.Interval = (int)numericUpDownSelectFreScale.Value;
+                        timerScale.Tick += new EventHandler(Scale_Timer_Tick);
+                        timerScale.Start();
+                    }
+                    else
+                    {
+                        AddLabelTextBoxScaleLine("Set the Frequency");
+                    }
+                }
+                else
+                {
+                    commandSendScale.Text = "Send";
+                    timerScale.Stop();
+                    AddLabelTextBoxScaleLine("Stopped");
+                }
+            }
+            else
+            {
+                string str = "";
+                ManualCommandScale(ref str);
+                SendCommandScale(str);
+            }
+        }
+
+        /// <summary>
+        /// Save scale commands 
+        /// </summary>
+        private void btnSaveScaleCommands_Click(object sender, EventArgs e)
+        {
+            string newCommand = "0x" + txtSaveSclae_1.Text + ",0x" + txtSaveSclae_2.Text + ",0x" + txtSaveSclae_3.Text + ",0x" 
+                            + txtSaveSclae_4.Text + ",0x" + txtSaveSclae_5.Text;
+            string descriptionStr = txtScaleComDesc.Text;
+            var item = new Dictionary<string, string>
+            {
+                {"Command", newCommand},
+                {"Description", descriptionStr}
+            };
+
+            dataDictScale = null;
+
+            if (File.Exists("dataScale.json"))
+            {
+                string jsonScale = File.ReadAllText("dataScale.json");
+                dataDictScale = JsonConvert.DeserializeObject<Dictionary<int, Dictionary<string, string>>>(jsonScale);
+                nextId = dataDictScale.Select(d => d.Key).DefaultIfEmpty(0).Max() + 1;
+
+            }
+            else
+            {
+                dataDictScale = new Dictionary<int, Dictionary<string, string>>();
+            }
+
+            if (dataDictScale.Any(d => d.Value.ContainsKey("Command") && d.Value["Command"] == newCommand))
+            {
+                AddLabelTextBoxScaleLine("This command already exists!");
+                return;
+            }
+            dataDictScale.Add(nextId, item);
+            nextId++;
+            // Serialize the data to JSON and write it to the file
+            string newJson = JsonConvert.SerializeObject(dataDictScale);
+            File.WriteAllText("dataScale.json", newJson);
+            AddLabelTextBoxScaleLine("Saved.");
+            dataGridView4.DataSource = null;
+
+            dataGridView4.Columns.Clear();
+            dataGridView4.Rows.Clear();
+            SaveCommandTableScalae();
+        }
+
+        /// <summary>
+        /// Clear scale dataGridView
+        /// </summary>
+        private void button11_Click(object sender, EventArgs e)
+        {
+            table4.Clear();
+            table5.Clear();
+        }
+
+        /// <summary>
+        /// radio button to show raw data (scale)
+        /// </summary>
+        private void rbtnScaleRawData_CheckedChanged(object sender, EventArgs e)
+        {
+            dataGridView5.DataSource = table4;
+        }
+
+        /// <summary>
+        /// radio button to show parse data (scale)
+        /// </summary>
+        private void rbtnDisplayParsedData_CheckedChanged(object sender, EventArgs e)
+        {
+            dataGridView5.DataSource = table5;
+        }
+
+        
+
+        private void label56_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void groupBox17_Enter(object sender, EventArgs e)
+        {
+
+        }
+        private void dataGridView2_CellMouseUp(object sender, DataGridViewCellMouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Right)
+            {
+                dataGridView2.Rows[e.RowIndex].Selected = true;
+                selectedRowIndex = e.RowIndex;
+                dataGridView2.CurrentCell = dataGridView2.Rows[e.RowIndex].Cells[1];
+                contextMenuStrip1.Show(dataGridView2, e.Location);
+                contextMenuStrip1.Show(Cursor.Position); 
+                selectedRowIndex = e.RowIndex;
+            }           
+        }
+        private void deleteToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (!this.dataGridView2.Rows[this.selectedRowIndex].IsNewRow)
+            {                  
+                    string json = File.ReadAllText("data.json");
+                    dataDict = JsonConvert.DeserializeObject<Dictionary<int, Dictionary<string, string>>>(json);
+                    dataDict.Remove(selectedRowIndex + 1);
+                    Dictionary<int, Dictionary<string, string>> updatedDict = new Dictionary<int, Dictionary<string, string>>();
+
+                    foreach (var kvp in dataDict)
+                    {
+                        if (kvp.Key < selectedRowIndex + 1) updatedDict.Add(kvp.Key, kvp.Value);
+                        else updatedDict.Add(kvp.Key - 1, kvp.Value);
+                    }
+                    // Serialize the data to JSON and write it to the file
+                    string newJson = JsonConvert.SerializeObject(updatedDict);
+                    File.WriteAllText("data.json", newJson);
+                    AddLabelTextBoxLine("Saved.");
+                    dataGridView2.DataSource = null;
+                    dataGridView2.Columns.Clear();
+                    dataGridView2.Rows.Clear();
+                    SaveCommandTable();               
+            }
+        }
+        
+        private void deleteToolStripMenuItem1_Click(object sender, EventArgs e)
+        {
+            if (!this.dataGridView4.Rows[this.selectedRowIndex1].IsNewRow)
+            {
+                string json1 = File.ReadAllText("dataScale.json");
+                dataDictScale = JsonConvert.DeserializeObject<Dictionary<int, Dictionary<string, string>>>(json1);
+                dataDictScale.Remove(selectedRowIndex1 + 1);
+                Dictionary<int, Dictionary<string, string>> updatedDict1 = new Dictionary<int, Dictionary<string, string>>();
+
+                foreach (var kvp in dataDictScale)
+                {
+                    if (kvp.Key < selectedRowIndex1 + 1) updatedDict1.Add(kvp.Key, kvp.Value);
+                    else updatedDict1.Add(kvp.Key - 1, kvp.Value);
+                }
+                // Serialize the data to JSON and write it to the file
+                string newJson1 = JsonConvert.SerializeObject(updatedDict1);
+                File.WriteAllText("dataScale.json", newJson1);
+                AddLabelTextBoxScaleLine("Saved.");
+                dataGridView4.DataSource = null;
+                dataGridView4.Columns.Clear();
+                dataGridView4.Rows.Clear();
+                SaveCommandTableScalae();
+            }
+        }
+
+        private void dataGridView4_CellMouseUp(object sender, DataGridViewCellMouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Right)
+            {
+                dataGridView4.Rows[e.RowIndex].Selected = true;
+                selectedRowIndex1 = e.RowIndex;
+                dataGridView4.CurrentCell = dataGridView4.Rows[e.RowIndex].Cells[1];
+                contextMenuStrip2.Show(dataGridView4, e.Location);
+                contextMenuStrip2.Show(Cursor.Position);
+                selectedRowIndex1 = e.RowIndex;
+            }
+        }
+
+        private void button5_Click_2(object sender, EventArgs e)
+        {
+            WeightEnglish.Text = "0";
+            WeightMetric.Text = "0";
+        }
+
+        private void label58_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void label73_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void button2_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void button9_Click(object sender, EventArgs e)
+        {
+            foreach (DataGridViewRow row in attributeDataGrid.Rows)
+            {
+                row.Visible = true;
+            }
+
+        }
+
+        private void button10_Click(object sender, EventArgs e)
+        {
+            foreach (DataGridViewRow row in attributeDataGrid.Rows)
+            {
+                row.Visible = false;
+            }
+            attributeDataGrid.Rows[0].Visible = true;
+
+        }
+    }
+}
