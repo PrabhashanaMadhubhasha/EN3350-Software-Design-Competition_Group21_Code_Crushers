@@ -31,6 +31,8 @@ public class QuestionareService {
     @Autowired
     private ModelMapper modelMapper;
 
+    private boolean isPlayed  = false;
+
     public QuestionDTO getQuestionByNumber(int qNumber) {
         QuestionEntity questionEntity = questionRepo.findQuestionByQuestionNum(qNumber);
         return modelMapper.map(questionEntity, QuestionDTO.class);
@@ -84,6 +86,7 @@ public class QuestionareService {
     }
 
     public List<ResultDTO> getResult(int userIndex) {
+        isPlayed = true;
         List<QuestionEntity> questions = questionRepo.findAll();
         int length = questions.size();
 
@@ -146,6 +149,27 @@ public class QuestionareService {
             answersDTO.setQuestion_num(questionNum);
         }
         return answersDTO;
+    }
+
+    public Boolean getStatus(){
+        return isPlayed;
+    }
+
+    // Get total marks of the player
+    public int getUserMarks(int userIndex) {
+        List<AnswersEntity> answersEntities = answersRepo.findByUserIndex(userIndex);
+        int marks = 0;
+        for (AnswersEntity answersEntity : answersEntities) {
+            int question_number = answersEntity.getQuestion_num();
+            int userAnswer = answersEntity.getUserAnswer();
+            FeedBackEntity feedBackEntity = feedbackRepo.findFeedbackByQuestionNum(question_number);
+            int correct_ans = feedBackEntity.getCorrect_answer();
+            if (userAnswer == correct_ans) {
+                marks = marks + 1;
+            }
+        }
+
+        return marks;
     }
 
 }

@@ -15,6 +15,7 @@ public class QuestionController {
     @Autowired
     private QuestionareService questionService;
 
+    // Get Question Number
     @CrossOrigin(origins = "http://localhost:5173")
     @GetMapping("/questions/{q_number}")
     public ResponseEntity<QuestionDTO> getQuestionByNumber(@PathVariable("q_number") int question_number) {
@@ -26,6 +27,7 @@ public class QuestionController {
         }
     }
 
+    // Set Questions
     @CrossOrigin(origins = "http://localhost:5173")
     @PostMapping("/upload_questions")
     public ResponseEntity<String> setQuestions(@RequestBody List<QuestionFeedbackDTO> questionFeedbackDTOList) {
@@ -37,6 +39,7 @@ public class QuestionController {
         }
     }
 
+    // Set User Answers
     @CrossOrigin(origins = "http://localhost:5173")
     @PostMapping("/updateAnswer")
     public ResponseEntity<String> setUserAnswers(@RequestBody AnswersDTO answersDTO){
@@ -44,22 +47,43 @@ public class QuestionController {
         return ResponseEntity.ok("Successful");
     }
 
+    // Send Result
     @CrossOrigin(origins = "http://localhost:5173")
     @GetMapping("/result/{userIndex}")
     public List<ResultDTO> sendResult(@PathVariable("userIndex") int userIndex){
         return questionService.getResult(userIndex);
     }
 
+    // Send Number of Questions
     @CrossOrigin(origins = "http://localhost:5173")
     @GetMapping("/numberOfQuestions")
     public ResponseEntity<Integer> sendNumberOfQuestions(){
         return ResponseEntity.ok(questionService.numberOfQuestions());
     }
 
+    // Send Answer
     @CrossOrigin(origins = "http://localhost:5173")
     @GetMapping("/getAnswer/{userIndex}/{questionNumber}")
     public ResponseEntity<AnswersDTO> sendAnswer(@PathVariable("userIndex") int userIndex, @PathVariable("questionNumber") int questionNumber){
         return ResponseEntity.ok(questionService.getUserAnswer(userIndex, questionNumber));
+    }
+
+    // Get Status to the Game
+    @CrossOrigin(origins = "*")
+    @GetMapping("/getStatus")
+    public ResponseEntity<StatusDTO> getStatus(){
+        StatusDTO statusDTO = new StatusDTO();
+        statusDTO.setStatus(questionService.getStatus());
+        return ResponseEntity.ok(statusDTO);
+    }
+
+    // Get Total Marks
+    @CrossOrigin(origins = "*")
+    @GetMapping("/getMarks/{userIndex}")
+    public ResponseEntity<MarksDTO> getMarks(@PathVariable("userIndex") int userIndex){
+        MarksDTO marksDTO = new MarksDTO();
+        marksDTO.setMarks(questionService.getUserMarks(userIndex));
+        return ResponseEntity.ok(marksDTO);
     }
 
 }

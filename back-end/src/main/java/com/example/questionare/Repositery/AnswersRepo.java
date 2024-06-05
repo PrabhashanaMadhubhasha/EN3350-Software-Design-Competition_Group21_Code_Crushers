@@ -15,4 +15,7 @@ public interface AnswersRepo extends JpaRepository<AnswersEntity, Integer> {
     @Query("SELECT a FROM AnswersEntity a WHERE a.userIndex = :userIndex AND a.question_num = :questionNum")
     List<AnswersEntity> findByUserIndexAndQuestionNum(@Param("userIndex") int userIndex, @Param("questionNum") int questionNum);
 
+//    @Query("SELECT a FROM AnswersEntity a WHERE a.userIndex = :userIndex")
+//    List<AnswersEntity> findByUserIndex(@Param("userIndex") int userIndex);
+
 }

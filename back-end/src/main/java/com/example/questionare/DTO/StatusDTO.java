@@ -7,8 +7,6 @@ import lombok.NoArgsConstructor;
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-public class AnswersDTO { // Answer Class
-    private int question_num;
-    private int userIndex;
-    private int answer;
+public class StatusDTO {  // Status Class
+    private boolean status;
 }
