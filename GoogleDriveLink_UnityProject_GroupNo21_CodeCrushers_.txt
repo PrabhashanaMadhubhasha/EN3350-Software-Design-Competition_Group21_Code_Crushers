@@ -14,6 +14,7 @@ Unity WindowsBuild - Assignment 03
 https://dms.uom.lk/s/NfdSFApnmNNGj89
 
 // For Extracting this Zip file will take a long time, sorry for that, also when extracting at one time it will ask to skip some files, so skip them
+// But if you can use Winrar software to extract this zip file then it will take a time less than 1 hour
 Unity GameFolder - Assignment 03
 https://drive.google.com/file/d/1doT_hEgHybLQbaa8ioq2T6NMYb_O_VFR/view?usp=sharing
 
