@@ -36,10 +36,12 @@ public class ScoreCalculater
     {
         if (currentCitizenHappiness >= maxCitizenHappiness / 2)
         {
+            Debug.Log("Calculate score based on citizen happiness value ");
             score += Mathf.RoundToInt(Mathf.Pow(currentCitizenHappiness, 2) / 20); // Using x^2 to increase more
         }
         if (currentCitizenHappiness == maxCitizenHappiness) // As a bonus score
         {
+            Debug.Log("Calculate score based on citizen happiness value ");
             score += Mathf.RoundToInt(Mathf.Pow(currentCitizenHappiness, 2) / 20);
         }
     }
@@ -49,6 +51,7 @@ public class ScoreCalculater
     {
         if (currentNetConsumption < 0)
         {
+            Debug.Log("Calculate score based on NetConsumptions (coins, electricity, water, food) ");
             score += Mathf.RoundToInt(currentNetConsumptionMaxPoints * (1 - Mathf.Exp((float)currentNetConsumption / 100))); // Using 1 - e^(-x) to decrease the increasing rate
         }
     }
@@ -58,10 +61,12 @@ public class ScoreCalculater
     {
         if (totalMaximumNetPowerConsumptionForSpecificDay / 24 - currentNetConsumption > 0 && totalMaximumNetPowerConsumptionForSpecificDay / 24 - currentNetConsumption < currentNetPowerConsumptionMaxPoints)
         {
+            Debug.Log("Calculate score based on NetConsumptions and API Consumptions");
             score += totalMaximumNetPowerConsumptionForSpecificDay / 24 - currentNetConsumption;
         }                                                                        
         else if (totalMaximumNetPowerConsumptionForSpecificDay / 24 - currentNetConsumption >= currentNetPowerConsumptionMaxPoints)
         {
+            Debug.Log("Calculate score based on NetConsumptions and API Consumptions");
             score += currentNetPowerConsumptionMaxPoints;
         }
     } 
@@ -69,12 +74,14 @@ public class ScoreCalculater
     // Add some points to score when using Renewable Energy
     public void IncreaseScoreUponRenewableEnergy(int totalRenewableEnergySources)
     {
+        Debug.Log("Add some points to score when using Renewable Energy");
         score += totalRenewableEnergySources * energySavingActionsPoints ^ 2;
     }
 
-    // // Add some points to score when selling Assets to save energy
+    // Add some points to score when selling Assets to save energy
     public void IncreaseScoreUponSelledAssets(int selledAssetsAmount)
     {
+        Debug.Log("Add some points to score when selling Assets to save energy");
         score += selledAssetsAmount * energySavingActionsPoints ^ 3;   
     }
 

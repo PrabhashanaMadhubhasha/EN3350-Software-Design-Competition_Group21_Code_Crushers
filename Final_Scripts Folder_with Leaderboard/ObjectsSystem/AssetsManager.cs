@@ -216,7 +216,7 @@ public class AssetsManager : MonoBehaviour
 
         CalculateCurrentCoins();
 
-        if(MissionSystem.Instance.missionObjectIndex >= 8)     // after Mision 7 citizen happiness will be updated
+        if(MissionSystem.Instance.missionObjectIndex >= 8)    // after Mision 7 citizen happiness will be updated
         {
             CalculateCitizenHappiness();
         }
@@ -224,7 +224,14 @@ public class AssetsManager : MonoBehaviour
         CalculateTotalNetPowerConsumptions();
 
         ActiveTreesWhenUsingRenewableEnergy();
-        
+
+        currentNetConsumptions.currentNetCoinsConsumption = currentCoinsConsumption - currentCoinsProduction;
+        currentNetConsumptions.currentNetEnergyPowerConsumption = currentEnergyPowerConsumption - currentEnergyPowerProduction;
+        currentNetConsumptions.currentNetWaterCapacityConsumption = currentWaterCapacityConsumption - currentWaterCapacityProduction;
+        currentNetConsumptions.currentNetFoodMassConsumption = currentFoodMassConsumption - currentFoodMassProduction;
+
+        Debug.Log(currentNetConsumptions.currentNetCoinsConsumption);
+
         score += scoreCalculater.CalculateTotalScore(currentCitizenHappiness, maxCitizenHappiness, currentNetConsumptions, PowerConsumptionAPIManager.Instance.totalMaximumNetPowerConsumptionForSpecificDay);
         scoreCalculater.SaveMaxScore(score);
         scoreCalculater = new ScoreCalculater();
@@ -587,12 +594,12 @@ public class AssetsManager : MonoBehaviour
                 }
             }
 
-            scoreCalculater.IncreaseScoreUponRenewableEnergy(totalRenewableEnergySources);  
-
             for (int i = 0; i < totalRenewableEnergySources; i++)
             {
                 if (treesList[i] != null)
                 {
+                    scoreCalculater.IncreaseScoreUponRenewableEnergy(totalRenewableEnergySources);
+
                     treesList[i].SetActive(true);
 
                     // Citizen Happines increment upon renewablw enrgy
