@@ -64,4 +64,14 @@
 
 ---
 
-**Note:** Replace `<YouTube_Video_ID>` with the actual video ID of the YouTube link you want to embed.
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Medieval City Walkthrough</title>
+</head>
+<body>
+    <h1>Medieval City Game Walkthrough</h1>
+    <iframe width="560" height="315" src="https://www.youtube.com/embed/<YouTube_Video_ID>" frameborder="0" allowfullscreen></iframe>
+</body>
+</html>
+
