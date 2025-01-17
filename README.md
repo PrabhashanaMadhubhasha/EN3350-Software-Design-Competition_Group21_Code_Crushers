@@ -6,7 +6,7 @@
 ---
 
 ## Game Trailer
-[![Watch the Video](https://img.youtube.com/vi/<YouTube_Video_ID>/0.jpg)](https://www.youtube.com/watch?v=<YouTube_Video_ID>)
+[![Watch the Video](https://img.youtube.com/vi/<YouTube_Video_ID>/0.jpg)](https://www.youtube.com/watch?v=7hM8RDnpdoc)
 
 ## Team Members - CodeCrushers
 - **R.D.P.M. Ranasinghe**
@@ -116,4 +116,50 @@ as Inventory Icons. Also, for special constructions build
 automatically at various Mission levels
 
 ---
+
+## Screenshots
+
+<table>
+  <tr>
+    <td><img src="ScreenShot/1.jpg" alt="Screenshot 1" width="400"></td>
+    <td><img src="ScreenShot/2.jpg" alt="Screenshot 2" width="400"></td>
+  </tr>
+  <tr>
+    <td><img src="ScreenShot/3.jpg" alt="Screenshot 3" width="400"></td>
+    <td><img src="ScreenShot/4.jpg" alt="Screenshot 4" width="400"></td>
+  </tr>
+  <tr>
+    <td><img src="ScreenShot/5.jpg" alt="Screenshot 5" width="400"></td>
+    <td><img src="ScreenShot/6.jpg" alt="Screenshot 6" width="400"></td>
+  </tr>
+  <tr>
+    <td><img src="ScreenShot/7.jpg" alt="Screenshot 7" width="400"></td>
+    <td><img src="ScreenShot/8.jpg" alt="Screenshot 8" width="400"></td>
+  </tr>
+  <tr>
+    <td><img src="ScreenShot/9.jpg" alt="Screenshot 9" width="400"></td>
+    <td><img src="ScreenShot/10.jpg" alt="Screenshot 10" width="400"></td>
+  </tr>
+  <tr>
+    <td><img src="ScreenShot/11.jpg" alt="Screenshot 11" width="400"></td>
+    <td><img src="ScreenShot/12.jpg" alt="Screenshot 12" width="400"></td>
+  </tr>
+  <tr>
+    <td><img src="ScreenShot/13.jpg" alt="Screenshot 13" width="400"></td>
+    <td><img src="ScreenShot/14.jpg" alt="Screenshot 14" width="400"></td>
+  </tr>
+  <tr>
+    <td><img src="ScreenShot/15.jpg" alt="Screenshot 15" width="400"></td>
+    <td><img src="ScreenShot/16.jpg" alt="Screenshot 16" width="400"></td>
+  </tr>
+  <tr>
+    <td><img src="ScreenShot/17.jpg" alt="Screenshot 17" width="400"></td>
+    <td><img src="ScreenShot/18.jpg" alt="Screenshot 18" width="400"></td>
+  </tr>
+  <tr>
+    <td><img src="ScreenShot/19.jpg" alt="Screenshot 19" width="400"></td>
+    <td><img src="ScreenShot/20.jpg" alt="Screenshot 20" width="400"></td>
+  </tr>
+</table>
+
 
