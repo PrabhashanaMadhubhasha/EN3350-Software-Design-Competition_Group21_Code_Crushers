@@ -117,49 +117,50 @@ automatically at various Mission levels
 
 ---
 
-## Screenshots
+## Screen Shots
 
 <table>
   <tr>
-    <td><img src="ScreenShot/1.jpg" alt="Screenshot 1" width="400"></td>
-    <td><img src="ScreenShot/2.jpg" alt="Screenshot 2" width="400"></td>
+    <td><img src="ScreenShots/1.jpg" width="400"></td>
+    <td><img src="ScreenShots/2.jpg" width="400"></td>
   </tr>
   <tr>
-    <td><img src="ScreenShot/3.jpg" alt="Screenshot 3" width="400"></td>
-    <td><img src="ScreenShot/4.jpg" alt="Screenshot 4" width="400"></td>
+    <td><img src="ScreenShots/3.jpg" width="400"></td>
+    <td><img src="ScreenShots/4.jpg" width="400"></td>
   </tr>
   <tr>
-    <td><img src="ScreenShot/5.jpg" alt="Screenshot 5" width="400"></td>
-    <td><img src="ScreenShot/6.jpg" alt="Screenshot 6" width="400"></td>
+    <td><img src="ScreenShots/5.jpg" width="400"></td>
+    <td><img src="ScreenShots/6.jpg" width="400"></td>
   </tr>
   <tr>
-    <td><img src="ScreenShot/7.jpg" alt="Screenshot 7" width="400"></td>
-    <td><img src="ScreenShot/8.jpg" alt="Screenshot 8" width="400"></td>
+    <td><img src="ScreenShots/7.jpg" width="400"></td>
+    <td><img src="ScreenShots/8.jpg" width="400"></td>
   </tr>
   <tr>
-    <td><img src="ScreenShot/9.jpg" alt="Screenshot 9" width="400"></td>
-    <td><img src="ScreenShot/10.jpg" alt="Screenshot 10" width="400"></td>
+    <td><img src="ScreenShots/9.jpg" width="400"></td>
+    <td><img src="ScreenShots/10.jpg" width="400"></td>
   </tr>
   <tr>
-    <td><img src="ScreenShot/11.jpg" alt="Screenshot 11" width="400"></td>
-    <td><img src="ScreenShot/12.jpg" alt="Screenshot 12" width="400"></td>
+    <td><img src="ScreenShots/11.jpg" width="400"></td>
+    <td><img src="ScreenShots/12.jpg" width="400"></td>
   </tr>
   <tr>
-    <td><img src="ScreenShot/13.jpg" alt="Screenshot 13" width="400"></td>
-    <td><img src="ScreenShot/14.jpg" alt="Screenshot 14" width="400"></td>
+    <td><img src="ScreenShots/13.jpg" width="400"></td>
+    <td><img src="ScreenShots/14.jpg" width="400"></td>
   </tr>
   <tr>
-    <td><img src="ScreenShot/15.jpg" alt="Screenshot 15" width="400"></td>
-    <td><img src="ScreenShot/16.jpg" alt="Screenshot 16" width="400"></td>
+    <td><img src="ScreenShots/15.jpg" width="400"></td>
+    <td><img src="ScreenShots/16.jpg" width="400"></td>
   </tr>
   <tr>
-    <td><img src="ScreenShot/17.jpg" alt="Screenshot 17" width="400"></td>
-    <td><img src="ScreenShot/18.jpg" alt="Screenshot 18" width="400"></td>
+    <td><img src="ScreenShots/17.jpg" width="400"></td>
+    <td><img src="ScreenShots/18.jpg" width="400"></td>
   </tr>
   <tr>
-    <td><img src="ScreenShot/19.jpg" alt="Screenshot 19" width="400"></td>
-    <td><img src="ScreenShot/20.jpg" alt="Screenshot 20" width="400"></td>
+    <td><img src="ScreenShots/19.jpg" width="400"></td>
+    <td><img src="ScreenShots/20.jpg" width="400"></td>
   </tr>
 </table>
+
 
 
