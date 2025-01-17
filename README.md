@@ -121,7 +121,11 @@ automatically at various Mission levels
 
 <table>
   <tr>
-    <td><img src="ScreenShots/1.png" width="400"></td>
+    <td><img src="ScreenShots/0-1.png" width="400"></td>
+    <td><img src="ScreenShots/0-2.png" width="400"></td>
+  </tr>
+  <tr>
+    <td><img src="ScreenShots/0-3.png" width="400"></td>
     <td><img src="ScreenShots/2.png" width="400"></td>
   </tr>
   <tr>
