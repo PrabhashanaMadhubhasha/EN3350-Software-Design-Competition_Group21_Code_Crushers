@@ -1,19 +1,17 @@
-# CodeCrushers: Medieval City Game
-
-## Team Members
-- **R.D.P.M. Ranasinghe** - 200512B  
-- **R.A.R.L. Ranasinghe** - 200511V  
-- **A.G.P.S. Vikkramanayaka** - 200683X  
-
----
-
-## Game Name
-**Medieval City**
-
----
+# Medieval City - City Building Game
 
 ## Unity Game Logo
 (*Insert Game Logo Here*)
+
+---
+
+## Video Walkthrough
+[![Watch the Video](https://img.youtube.com/vi/<YouTube_Video_ID>/0.jpg)](https://www.youtube.com/watch?v=<YouTube_Video_ID>)
+
+## Team Members - CodeCrushers
+- **R.D.P.M. Ranasinghe** - 200512B  
+- **R.A.R.L. Ranasinghe** - 200511V  
+- **A.G.P.S. Vikkramanayaka** - 200683X  
 
 ---
 
@@ -115,14 +113,4 @@ as Inventory Icons. Also, for special constructions build
 automatically at various Mission levels
 
 ---
-
-## Video Walkthrough
-[![Watch the Video](https://img.youtube.com/vi/<YouTube_Video_ID>/0.jpg)](https://www.youtube.com/watch?v=<YouTube_Video_ID>)
-
----
-
-<video controls width="640" height="360">
-  <source src="/demo.mp4" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
 
