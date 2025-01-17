@@ -64,14 +64,8 @@
 
 ---
 
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Medieval City Walkthrough</title>
-</head>
-<body>
-    <h1>Medieval City Game Walkthrough</h1>
-    <iframe width="560" height="315" src="https://www.youtube.com/embed/<YouTube_Video_ID>" frameborder="0" allowfullscreen></iframe>
-</body>
-</html>
+<video controls width="640" height="360">
+  <source src="assets/demo.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
 
