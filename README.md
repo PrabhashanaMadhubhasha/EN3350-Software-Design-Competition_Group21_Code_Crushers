@@ -1,12 +1,12 @@
 # **Medieval City** - City Building Game
 
 ## Unity Game Logo
-(*Insert Game Logo Here*)
+ScreenShots/Game Logo.png
 
 ---
 
 ## Game Trailer
-[![Watch the Video](https://img.youtube.com/vi/<YouTube_Video_ID>/0.jpg)](https://www.youtube.com/watch?v=7hM8RDnpdoc)
+[![Watch the Video](ScreenShots/1.png)](https://www.youtube.com/watch?v=7hM8RDnpdoc)
 
 ## Team Members - CodeCrushers
 - **R.D.P.M. Ranasinghe**
