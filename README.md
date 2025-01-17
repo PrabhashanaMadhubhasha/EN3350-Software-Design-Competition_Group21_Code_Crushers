@@ -6,7 +6,6 @@
 ---
 
 ## Game Trailer
-![Game Logo](resources/logo.png)
 [![Watch the Video](https://img.youtube.com/vi/<YouTube_Video_ID>/0.jpg)](https://www.youtube.com/watch?v=<YouTube_Video_ID>)
 
 ## Team Members - CodeCrushers
