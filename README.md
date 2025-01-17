@@ -1,7 +1,7 @@
 # **Medieval City** - City Building Game
 
 ## Unity Game Logo
-ScreenShots/Game Logo.png
+(ScreenShots/Game Logo.png)
 
 ---
 
