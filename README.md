@@ -1,30 +1,22 @@
-# Medieval City - City Building Game
+# **Medieval City** - City Building Game
 
 ## Unity Game Logo
 (*Insert Game Logo Here*)
 
 ---
 
-## Video Walkthrough
+## Game Trailer
+![Game Logo](resources/logo.png)
 [![Watch the Video](https://img.youtube.com/vi/<YouTube_Video_ID>/0.jpg)](https://www.youtube.com/watch?v=<YouTube_Video_ID>)
 
 ## Team Members - CodeCrushers
-- **R.D.P.M. Ranasinghe** - 200512B  
-- **R.A.R.L. Ranasinghe** - 200511V  
-- **A.G.P.S. Vikkramanayaka** - 200683X  
+- **R.D.P.M. Ranasinghe**
+- **R.A.R.L. Ranasinghe** 
+- **A.G.P.S. Vikkramanayaka**
 
 ---
 
 ## Features
-
-### Quiz Marks
-- According to the quiz marks no of enemies at Mission 1 and 7 will
-be reduced as an Ex: if marks = 4, then
-Max enemies at Mission 1 = 20, active enemies will be 20 - 4 = 16
-Max enemies at Mission 7 = 40, active enemies will be 40 - 4 = 36
-- Funds that give from the Core Land (Main Country) will increase.
-So, if we have taken 4 marks. Then 4 * 100 coins will be added to
-the funds amount.
 
 ### Game Environment Dynamic Changes
 - Day Night System with Sky box Changing.
@@ -93,6 +85,18 @@ Water capacity energy, and Hotel for Food Mass energy.
 - On Mission & Object Screen player can see the power production
 demand responses.
 - On Notifications UI player can see various power saving Instructions.
+
+### Web Integration
+- A pre-game quiz system built using Java Spring Boot for the backend and React for the frontend. Players must complete the quiz before accessing the game, with seamless account verification and quiz tracking.
+
+### Quiz Marks
+- According to the quiz marks no of enemies at Mission 1 and 7 will
+be reduced as an Ex: if marks = 4, then
+Max enemies at Mission 1 = 20, active enemies will be 20 - 4 = 16
+Max enemies at Mission 7 = 40, active enemies will be 40 - 4 = 36
+- Funds that give from the Core Land (Main Country) will increase.
+So, if we have taken 4 marks. Then 4 * 100 coins will be added to
+the funds amount.
 
 ### Mock APIs and HTTP Methods
 - We have considered the mock Api values as Net Power
